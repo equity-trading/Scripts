@@ -64,6 +64,23 @@ function Get-ParameterValues {
     $ParameterValues
 }
 
+function Get-Events2 () {
+	[CmdletBinding( SupportsShouldProcess = $true, ConfirmImpact = 'Medium' )]
+	param([int[]]$Levels=$null, [int] $NoOfEvents=2000 )
+
+	# if ($Levels -eq $null) { write-output "Levels is not set" } else { write-output "Levels[$(($Levels).length)] : $($Levels -join ' ')" }
+	
+	[ScriptBlock] $ScriptBlock={ Get-WinEvent * -maxevent $NoOfEvents -ea 0 |  Where-Object { $null -eq $Levels -or $_.Level -in $Levels } | Group-Object LogName,ProviderName,Level }
+	
+	# $expanded = $ExecutionContext.InvokeCommand.ExpandString($ScriptBlock)
+	$newClosure = $ScriptBlock.GetNewClosure()
+#$expanded.ToString()
+	if ($PSCmdlet.ShouldProcess($newClosure.ToString(), "Execute")) {
+		& $newClosure
+	} 	
+}
+
+
 function Test-Parameters {
 	# [CmdletBinding()]
 	param(
