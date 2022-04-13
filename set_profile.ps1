@@ -1,0 +1,1 @@
+New-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' Personal -Value 'C:\home\src' -Type ExpandString -Force

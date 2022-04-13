@@ -1,10 +1,9 @@
 # [CmdletBinding(SupportsShouldProcess = $true,ConfirmImpact = 'Medium')]
-param(	[string] $command="TopEvents", 
-		[int] $EventRecordID=0, [int] $EventID=0, [string] $LogName="", [string] $ProviderName="", 
+param(	[string] $Command="Get-TopEvents", 
+		[int] $EventRecordID, [int] $EventID, [string] $LogName, [string] $ProviderName, 
 		[int[]] $Levels, 
-		[int] $Hours=10, [int] $Minutes=0, [int] $Seconds=0, [int] $ms=1,
-		[int] $NoOfOutLines=20 , [int] $NoOfEvents=1,
-		[int] $FilterLogDays=5, 
+		[int] $Hours, [int] $Minutes, [int] $Seconds=0, [int] $ms=1,
+        [int]$NoOfOutLines=10, [int] $NoOfEvents, [int]$FilterLogDays,
 		[int] $Trace
 )
 
@@ -63,17 +62,16 @@ function Get-ParameterValues {
     $ParameterValues
 }
 
-function Get-Logs () {
+function Get-EventLogs () {
 	param([int]$FilterLogDays=5)
-    if(!$script:LOGS) { $script:LOGS=get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddDays(-$FilterLogDays))} }
-	write-debug "LOGS count is $($script:LOGS.Count)"
-	return $script:LOGS.LogName
+    if(!$script:EVENT_LOGS) { $script:EVENT_LOGS=get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddDays(-$FilterLogDays))} }
+	write-debug "LOGS count is $($script:EVENT_LOGS.Count)"
+	return $script:EVENT_LOGS.LogName
 }
 
-function Get-Events () {
-	param([int[]]$Levels,[int]$NoOfEvents=5000,[int]$FilterLogDays=5)
-	Get-Logs @PsBoundParameters
-	return 
+function Get-GroupedEvents () {
+	param([int[]]$Levels,[int]$NoOfEvents=5000,[int]$FilterLogDays)
+	
 	$FilterArray=@()
 	$FilterArray+='1 -eq 1'
 	if($PSBoundParameters.ContainsKey("Levels")) { $FilterArray+='$_.Level -in $Levels' }
@@ -82,46 +80,55 @@ function Get-Events () {
 	# Get-WinEvent * -maxevent $NoOfEvents -ea 0 | Where-Object $FilterBlock | Group-Object LogName,ProviderName,Level | Sort-Object -Descending Count	
 	# Get-WinEvent $(get-winevent -listlog * -ea 0|where {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddDays(-10))} ).LogName `
 	#		-maxevent $NoOfEvents -ea 0 | Where-Object $FilterBlock | Group-Object LogName,ProviderName,Level | Sort-Object -Descending Count	
-	Get-WinEvent $script:LOGS.LogName -maxevent $NoOfEvents -ea 0 | Where-Object $FilterBlock | Group-Object LogName,ProviderName,Level | Sort-Object -Descending Count	
+	
+    if(!$script:GROUPED_EVENTS) { $script:GROUPED_EVENTS=Get-WinEvent $(Get-EventLogs @PsBoundParameters) -maxevent $NoOfEvents -ea 0 | Where-Object $FilterBlock | Group-Object LogName,ProviderName,Level | Sort-Object -Descending Count }
+	write-debug "GROUPED_EVENTS count is $($script:GROUPED_EVENTS.Count)"
+	return $script:GROUPED_EVENTS
 }
 
-function TopEvents () {
+function Get-TopEvents () {
 	param(	[int]$EventRecordID, [int]$EventID, [string] $LogName="", [string] $ProviderName="",
 			[int[]]$Levels,
 			[int]$Hours, [int]$Minutes, [int]$Seconds, [int]$ms,
-			[int]$NoOfOutLines, [int] $NoOfEvents,
+			[int]$NoOfOutLines=10, [int] $NoOfEvents,
 			[int]$FilterLogDays)
 
-	$GroupedEvents=Get-Events @PsBoundParameters | select-object -first $NoOfOutLines *
-	return $GroupedEvents 
+    
+    if(!$script:TOP_EVENTS) { $script:TOP_EVENTS = $(Get-GroupedEvents @PsBoundParameters) |  select-object -first $NoOfOutLines * }
+	write-debug "TOP_EVENTS count is $($script:TOP_EVENTS.Count)"
+	return $script:TOP_EVENTS
 }
-
-$Parameters = . Get-ParameterValues
-# $Parameters
 
 function CodeExecutor {
 	# [CmdletBinding(SupportsShouldProcess = $true,ConfirmImpact = 'Medium')]
-    param (
-        # Define the piece of functionality to accept as a [scriptblock]
-        [string]$command="TopEvents"
-    )
-	write-output '[CodeExecutor] -- start ----------------------'
-	write-output "command: $command; args[$(($args).length)] : $($args -join ' ')"
+#	write-output '[CodeExecutor] -- start ----------------------'
+# 	write-output "command: $command; args[$(($args).length)] : $($args -join ' ')"
     
-	Invoke-Command -ScriptBlock { & $command @args} -ArgumentList $args
+#	Invoke-Command -ScriptBlock { & $command @args} -ArgumentList $args
     # Invoke the script block with `&`
-	write-output '[CodeExecutor] -- end ----------------------'	    
-	TopEvents @args
+	# write-output '[CodeExecutor] -- end ----------------------'
+	# TopEvents @args
+    Clear-Variable TOP_EVENTS,GROUPED_EVENTS,EVENT_LOGS -Scope Script -ea 0
+    & $command @args
 }
+
+
+# $Parameters = . Get-ParameterValues
+# $Parameters
 
 # write-output "`n`n * Call 1"
 # CodeExecutor @Parameters
 # TopEvents @Parameters
 
-Get-Events @Parameters
+# Get-Events @Parameters
+# Get-TopEvents @PsBoundParameters
+
 
 # break 
-# CodeExecutor @Parameters
+
+# if($PSBoundParameters.ContainsKey("Command") -eq "True" ) { $PsBoundParameters.remove("Command") }
+
+CodeExecutor -command $command @PsBoundParameters
 
 # Test-PsCallStack Get-Content @PSBoundParameters
 # Test-Parameters @PSBoundParameters
@@ -138,4 +145,4 @@ Get-Events @Parameters
 
 # TestCall -a 1 -b 2 -c 3 -d "- D -"
 
-if ($PSBoundParameters.ContainsKey('Trace')) { Set-PSDebug -Trace 0 }
+# if ($PSBoundParameters.ContainsKey('Trace')) { Set-PSDebug -Trace 0 }

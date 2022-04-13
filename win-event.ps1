@@ -65,7 +65,7 @@ function GetTopEvents () {
 	[CmdletBinding( SupportsShouldProcess = $true, ConfirmImpact = 'Medium' )]
 	param([int[]]$Levels=$null, [int] $TopEvents=2000 )
 	
-	[ScriptBlock] $ScriptBlock={ $TopEvents=$(Get-WinEvent * -maxevent $TopEvents -ea 0 |  Where-Object { $Levels -eq $null -or $_.Level -in $Levels } | Group-Object LogName,ProviderName,Level ) }
+	[ScriptBlock] $ScriptBlock={ $TopEvents=$(Get-WinEvent * -maxevent $TopEvents -ea 0 |  Where-Object { $null  -eq $Levels -or $_.Level -in $Levels } | Group-Object LogName,ProviderName,Level ) }
 	
 	$expanded = $ExecutionContext.InvokeCommand.ExpandString($ScriptBlock)
 	$newClosure = $ScriptBlock.GetNewClosure()
@@ -86,10 +86,10 @@ function TopEvents () {
 			[int]$Hours=0, [int]$Minutes=0, [int]$Seconds=0, [int]$ms=1,
 			[int] $TopSources=20 , [int] $TopEvents=2000 )
 
-	echo "Getting last $TopEvents events" 
+	Write-Output "Getting last $TopEvents events" 
 	$TopEvents=$(GetTopEvents $Levels, $TopEvents)
  
-	echo "Top $TopSources active providers" 
+	Write-Output "Top $TopSources active providers" 
 	$TopEvents=$(Get-WinEvent * -maxevent $TopEvents -ea 0 | Group-Object LogName,ProviderName,Level )
 
 	$TopEvents | Group-Object ProviderName,LogName,Level  |
@@ -127,7 +127,7 @@ function GetEvent {
 		echo "Getting last $TopEvents events" 
 		$TopEvents=$(GetTopEvents $Levels, $TopEvents)
 		
-		echo "Top $TopSources active logs" 
+		Write-Output "Top $TopSources active logs" 
 		
 		$TopEvents | Group-Object LogName | Sort -Descending | Select -first $TopSources * |
 		   Select-Object  `
