@@ -46,71 +46,71 @@ function Test-Params1 {
 }
 
 function Test-Params2 {
-    param(
-        [switch] $SkipGetList,
-        [switch] $DisableHistory,
-        [datetime] $ComputationDate,
-        [string] $RefVersion,
-        [string] $WorkingDir,
-        [int[]] $Indices
-    )
-    write-output "`n ** Test-Params2 start"
-  
-    # Get this function's invocation as a command line 
-    # with literal (expanded) values.
-    '{0} {1}' -f `
-      $MyInvocation.InvocationName, # the function's own name, as invoked
-      ($(foreach ($bp in $PSBoundParameters.GetEnumerator()) { # argument list
-        $valRep =
-          if ($bp.Value -is [switch]) { # switch parameter
-            if ($bp.Value) { $sep = '' } # switch parameter name by itself is enough
-            else { $sep = ':'; '$false' } # `-switch:$false` required
-          }
-          else { # Other data types, possibly *arrays* of values.
-            $sep = ' '
-            foreach ($val in $bp.Value) {
-              if ($val -is [bool]) { # a Boolean parameter (rare)
-                ('$false', '$true')[$val] # Booleans must be represented this way.
-              } else { # all other types: stringify in a culture-invariant manner.
-                if (-not ($val.GetType().IsPrimitive -or $val.GetType() -in [string], [datetime], [datetimeoffset], [decimal], [bigint])) {
-                  Write-Warning "Argument of type [$($val.GetType().FullName)] will likely not round-trip correctly; stringifies to: $val"
-                }
-                # Single-quote the (stringified) value only if necessary
-                # (if it contains argument-mode metacharacters).
-                if ($val -match '[ $''"`,;(){}|&<>@#]') { "'{0}'" -f ($val -replace "'", "''") }
-                else { "$val" }
+  param(
+      [switch] $SkipGetList,
+      [switch] $DisableHistory,
+      [datetime] $ComputationDate,
+      [string] $RefVersion,
+      [string] $WorkingDir,
+      [int[]] $Indices
+  )
+  write-output "`n ** Test-Params2 start"
+
+  # Get this function's invocation as a command line 
+  # with literal (expanded) values.
+  '{0} {1}' -f `
+    $MyInvocation.InvocationName, # the function's own name, as invoked
+    ($(foreach ($bp in $PSBoundParameters.GetEnumerator()) { # argument list
+      $valRep =
+        if ($bp.Value -is [switch]) { # switch parameter
+          if ($bp.Value) { $sep = '' } # switch parameter name by itself is enough
+          else { $sep = ':'; '$false' } # `-switch:$false` required
+        }
+        else { # Other data types, possibly *arrays* of values.
+          $sep = ' '
+          foreach ($val in $bp.Value) {
+            if ($val -is [bool]) { # a Boolean parameter (rare)
+              ('$false', '$true')[$val] # Booleans must be represented this way.
+            } else { # all other types: stringify in a culture-invariant manner.
+              if (-not ($val.GetType().IsPrimitive -or $val.GetType() -in [string], [datetime], [datetimeoffset], [decimal], [bigint])) {
+                Write-Warning "Argument of type [$($val.GetType().FullName)] will likely not round-trip correctly; stringifies to: $val"
               }
+              # Single-quote the (stringified) value only if necessary
+              # (if it contains argument-mode metacharacters).
+              if ($val -match '[ $''"`,;(){}|&<>@#]') { "'{0}'" -f ($val -replace "'", "''") }
+              else { "$val" }
             }
           }
-        # Synthesize the parameter-value representation.
-        '-{0}{1}{2}' -f $bp.Key, $sep, ($valRep -join ', ')
-      }) -join ' ') # join all parameter-value representations with spaces
+        }
+      # Synthesize the parameter-value representation.
+      '-{0}{1}{2}' -f $bp.Key, $sep, ($valRep -join ', ')
+    }) -join ' ') # join all parameter-value representations with spaces
 
-    write-output "`n ** Test-Params2 end"
-  }
+  write-output "`n ** Test-Params2 end"
+}
 
 function Test-Params3 {
-    param (
-          [string] $Bar = 'test'
-        , [string] $Baz
-        , [string] $Asdf
-    )
+    param ( [string] $SetVar = 'test value', [string[]] $SetArr = @('val 1', '', 'val 2'), [string] $NotSetVar )
     write-output "`n ** Test-Params3 start"
     write-output "`n *** Test-Params3 local params"
-    $ParameterList = (Get-Command -Name $MyInvocation.MyCommand).Parameters;
+    $ParameterList = (Get-Command -Name $MyInvocation.MyCommand).Parameters
+    $ParameterList
     foreach ($key in $ParameterList.keys) {
-        $var = Get-Variable -Name $key -ErrorAction SilentlyContinue;
+        Clear-Variable var -ErrorAction SilentlyContinue
+        $var = Get-Variable -Name $key -ErrorAction SilentlyContinue
         if($var) {
-            write-host "$($var.name) > $($var.value)"
+            write-host " *** Var:$($var.name) ; Val: $($var.value)"
         }
     }
     write-output "`n *** Test-Params3 caller params"
     $CallerInvocation = (Get-Variable MyInvocation -Scope 1).Value
     $CallerParameterList = $CallerInvocation.MyCommand.Parameters;
+    $CallerParameterList
     foreach ($key in $CallerParameterList.keys) {
+        Clear-Variable var -ErrorAction SilentlyContinue
         $var = $CallerParameterList.$key
-        if($var) {
-            write-host "$($var.name) > $($var.value)"
+        if($CallerParameterList.$key) {
+            write-host " *** Var:$($var.name) ; Val: $($var.value)"
         }
     }
 
@@ -118,7 +118,7 @@ function Test-Params3 {
 }
 
 
-write-output " ** `$MyInvocation.MyCommand.Parameters Type:$($MyInvocation.MyCommand.Parameters) =="
+write-output " ** `$MyInvocation.MyCommand.Parameters =="
 $MyInvocation.MyCommand.Parameters
 write-output " ** `$MyInvocation.MyCommand.Parameters =="
 
