@@ -56,6 +56,19 @@ function Get-ParameterValues {
     $ParameterValues
 }
 
+function Test-Parameters {
+	# [CmdletBinding()]
+	param(
+		$Name = $Env:UserName,
+		$Age
+	)
+	$Parameters = . Get-ParameterValues
+	$Parameters
+	# This WILL ALWAYS have a value... 
+	Write-Host $Parameters["Name"]
+	# But this will NOT always have a value... 
+	Write-Host $PSBoundParameters["Name"]
+}
 
 
 
