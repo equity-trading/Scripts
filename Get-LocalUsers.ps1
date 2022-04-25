@@ -13,6 +13,7 @@ function Get-LocalUsers {
                                                    } else { "Never" }}}
 }
 
+# ([ADSI]"WinNT://$env:COMPUTERNAME").PsBase.Children | Where-Object {$_.SchemaClassName -match "user"}
 # set the date to compare against to midnight using '.Date'
 $refDate = (Get-Date).AddDays(-90).Date
-Get-LocalUsers | Where-Object { $_.LastLogin -eq 'Never' -or $_.LastLogin -lt $refDate }
+Get-LocalUsers | Where-Object { $_.LastLogin -eq 'Never' -or $_.LastLogin -lt $refDate } | Select-Object *
