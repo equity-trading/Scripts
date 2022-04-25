@@ -70,8 +70,6 @@ function Test-Parameters {
 	Write-Host $PSBoundParameters["Name"]
 }
 
-
-
 write-output "`n`n * Start"
 
 
@@ -82,11 +80,11 @@ $TestArgsPrint = {
 	write-output "== 1 ================="
 	write-output "Parameters[$($Parameters.Count)]: $(($Parameters.GetEnumerator().ForEach({ "$(($_).Key)=$(($_).Value)" })) -join '; ')"  
 	write-output "== 2 ================="
-	write-output "Parameters[$($Parameters.Count)]: $(($Parameters.GetEnumerator()  | % { "$($_.Key)=$($_.Value)" }) -join '; ')"
+	write-output "Parameters[$($Parameters.Count)]: $(($Parameters.GetEnumerator()  | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')"
 	write-output "== 3 ================="
 	write-output "Parameters[$($Parameters.Count)]: $(($Parameters.GetEnumerator().ForEach({ "$($_.Key)=$($_.Value)" })) -join '; ')"
 	write-output "== 4 ================="
-	write-output "Parameters[$($Parameters.Count)]: $($Parameters.Keys    | % { "$_=$($Parameters.$_ -join ',')" })"
+	write-output "Parameters[$($Parameters.Count)]: $($Parameters.Keys    | ForEach-Object { "$_=$($Parameters.$_ -join ',')" })"
 	write-output "== Args =============="
 	write-output "args[$(($args).Length)]: $($args -join '; ')"
 }.GetNewClosure() 
