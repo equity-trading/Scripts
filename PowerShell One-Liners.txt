@@ -67,7 +67,7 @@ Select-Object @{name="Total Files";Expression={$_.count}},
 ############################################################# 
 # Get event log utilization for remote computers defined in $computers. The remote computers must be running PowerShell v3 or later.
 #
-gcim Win32_NTEventLogFile -computer $computers -filter  "NumberOfRecords > 0" | 
+gcim Win32_NTEventLogFile <#-computer $computers#> -filter  "NumberOfRecords > 0" | 
 Select-Object @{Name="Computername";Expression={$_.CSName}},
 LogFileName,
 NumberOfRecords,
@@ -126,6 +126,7 @@ get-process | Where { $_.Modules.filename -match "netapi32.dll"}
 # Since PowerShell Core and PowerShell 7 do not include the Get-Eventlog cmdlet, heres a one-liner to list the last 10 errors in the System event log. A level value of 3 will give you warnings.
 #
 get-winevent -FilterHashtable @{Logname = 'System';Level=2} -MaxEvents 10 | sort-Object ProviderName,TimeCreated
+get-winevent -FilterHashtable @{Logname = 'Application';Level=2} -MaxEvents 10 | sort-Object ProviderName,TimeCreated
 
 #############################################################
 # List all PowerShell profile script settings. You will see different values for different hosts, such as the PowerShell ISE, as well as between Windows PowerShell and PowerShell 7.
