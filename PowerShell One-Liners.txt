@@ -122,11 +122,26 @@ Get-NetIPAddress -AddressFamily IPv4 | Sort-Object IPAddress | select IPaddress,
 #
 get-process | Where { $_.Modules.filename -match "netapi32.dll"}
 
+############################################################# 
+# Get event logs changed during 4 hours
+get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}
+(get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}).LogName
+
+############################################################# 
+# Get error and warnings event during last 2 hours in 'System','Application','Setup','Security' logs
+Get-WinEvent -FilterHashtable @{LogName=('System','Application','Setup','Security'); Level=(0,1,2,3); StartTime=((Get-Date).AddHours(-2))} -ErrorAction Ignore | sort-Object ProviderName,TimeCreated
+
+#############################################################
+# List the error events during last 2 hours
+#
+(get-winevent -FilterHashtable @{Logname = (get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}).LogName;Level=(0,1,2); StartTime=((Get-Date).AddHours(-2))}) | sort-Object -Descending TimeCreated,ProviderName
+
 #############################################################
 # Since PowerShell Core and PowerShell 7 do not include the Get-Eventlog cmdlet, heres a one-liner to list the last 10 errors in the System event log. A level value of 3 will give you warnings.
 #
 get-winevent -FilterHashtable @{Logname = 'System';Level=2} -MaxEvents 10 | sort-Object ProviderName,TimeCreated
-get-winevent -FilterHashtable @{Logname = 'Application';Level=2} -MaxEvents 10 | sort-Object ProviderName,TimeCreated
+
+
 
 #############################################################
 # List all PowerShell profile script settings. You will see different values for different hosts, such as the PowerShell ISE, as well as between Windows PowerShell and PowerShell 7.
@@ -158,3 +173,9 @@ $profile | select *host* | format-list
 # How long has your PowerShell session been running?
 #
 (Get-Date) - (get-process -id $pid).starttime
+
+
+#############################################################
+# Recently Created User Accounts
+#
+gcim win32_UserAccount | select *

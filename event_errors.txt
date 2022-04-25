@@ -1,0 +1,164 @@
+#############################################################
+# List the error events during last 2 hours
+#
+(get-winevent -FilterHashtable @{Logname = (get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}).LogName;Level=(0,1,2); StartTime=((Get-Date).AddHours(-2))}) | sort-Object -Descending TimeCreated,ProviderName
+
+ProviderName: Microsoft-Windows-CodeIntegrity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 10:38:45 AM         3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\svchost.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 10:38:45 AM         3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\svchost.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+
+# Investigation Results
+# https://forum.kaspersky.com/topic/error-related-to-antimalware_providerdll-windows-signing-level-requirements-20794/#comment-90164
+# We reproduced this issue locally, contacted Microsoft, and they informed the issue is on their side. Nothing to worry about. Please ignore these messages. 
+
+ProviderName: Microsoft-Windows-WMI-Activity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 10:38:45 AM         5857 Information      netnat provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %systemroot%\system32\wbem\NetNat.dll
+
+   ProviderName: Microsoft-Windows-CodeIntegrity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 10:38:45 AM         3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\svchost.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+# Investigation Results
+# https://forum.kaspersky.com/topic/error-related-to-antimalware_providerdll-windows-signing-level-requirements-20794/#comment-90164
+# We reproduced this issue locally, contacted Microsoft, and they informed the issue is on their side. Nothing to worry about. Please ignore these messages. 
+
+   ProviderName: Microsoft-Windows-WMI-Activity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 10:03:02 AM         5857 Information      MS_NT_EVENTLOG_PROVIDER provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %systemroot%\system32\wbem\ntevt.dll
+
+   ProviderName: Microsoft-Windows-WinRM
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 10:00:18 AM          142 Error            WSMan operation Get failed, error code 2150858770
+4/25/2022 10:00:18 AM          161 Error            The client cannot connect to the destination specified in the request. Verify that the service on the destination is running and is accepting requests. Consult the logs and documentation for the WS-Management service running on the destination, most commonly IIS or WinRM. If the destination is the WinRM service, run the foll…
+
+   ProviderName: Microsoft-Windows-StorageManagement
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:58:25 AM             6 Error            The Windows Storage Provider host service failed to start.                    …
+
+   ProviderName: Microsoft-Windows-WMI-Activity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:58:25 AM          5857 Information      StorageWMI provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %SystemRoot%\System32\storagewmi.dll
+
+   ProviderName: Microsoft-Windows-CodeIntegrity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:56:54 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\svchost.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:56:54 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\svchost.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+
+   ProviderName: Microsoft-Windows-WMI-Activity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:56:54 AM          5857 Information      netnat provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %systemroot%\system32\wbem\NetNat.dll
+
+   ProviderName: Microsoft-Windows-CodeIntegrity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:56:54 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\svchost.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+
+   ProviderName: Microsoft-Windows-WinRM
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:48:08 AM           142 Error            WSMan operation Enumeration failed, error code 2150858770
+4/25/2022 9:48:08 AM           161 Error            The client cannot connect to the destination specified in the request. Verify that the service on the destination is running and is accepting requests. Consult the logs and documentation for the WS-Management service running on the destination, most commonly IIS or WinRM. If the destination is the WinRM service, run the foll… 
+
+   ProviderName: Microsoft-Windows-WMI-Activity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:47:55 AM          5857 Information      Microsoft|DSLDAPClassProvider|V1.0 provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %systemroot%\system32\wbem\dsprov.dll
+4/25/2022 9:47:50 AM          5857 Information      WMIProv provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 4776; ProviderPath = %systemroot%\system32\wbem\wmiprov.dll
+
+   ProviderName: Windows-ApplicationModel-Store-SDK
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:37:08 AM          2004 Error            ChkHr(EnsureWindowFromCallingProcess(*phwndOwner))…
+4/25/2022 9:37:08 AM          2004 Error            ChkBool(callingProcessId == hwndProcessId, ((HRESULT)0x80070005L))…
+
+   ProviderName: Microsoft-Windows-Kernel-EventTracing
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:36:34 AM             2 Error            Session "Microsoft.Windows.Remediation" failed to start with the following error: 0xC0000035
+
+   ProviderName: Microsoft-Windows-WMI-Activity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:36:33 AM          5858 Error            Id = {6F97AB23-EC96-4847-B3E8-C4D5223F32BA}; ClientMachine = WIN11-2; User = NT AUTHORITY\NETWORK SERVICE; ClientProcessId = 5432; Component = Unknown; Operation = Start IWbemServices::ExecQuery - ROOT\CIMV2 : SELECT Manufacturer, Product FROM Win32_BaseBoard; ResultCode = 0x80041032; PossibleCause = Unknown
+4/25/2022 9:36:33 AM          5857 Information      DeliveryOptimizationMIProv provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %SystemRoot%\system32\domgmt.dll
+4/25/2022 9:36:33 AM          5858 Error            Id = {00000000-0000-0000-0000-000000000000}; ClientMachine = WIN11-2; User = NT AUTHORITY\SYSTEM; ClientProcessId = 17504; Component = Unknown; Operation = Start IWbemServices::ExecQuery - root\Microsoft\Windows\DeviceGuard : SELECT AvailableSecurityProperties FROM Win32_DeviceGuard ; ResultCode = 0x80041032; PossibleCause =… 
+4/25/2022 9:36:33 AM          5858 Error            Id = {00000000-0000-0000-0000-000000000000}; ClientMachine = WIN11-2; User = NT AUTHORITY\SYSTEM; ClientProcessId = 17504; Component = Unknown; Operation = Start IWbemServices::ExecQuery - root\Microsoft\Windows\DeviceGuard : SELECT SecurityServicesConfigured FROM Win32_DeviceGuard ; ResultCode = 0x80041032; PossibleCause = … 
+4/25/2022 9:36:33 AM          5857 Information      Win32_DeviceGuard provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %SystemRoot%\System32\Win32_DeviceGuard.dll
+4/25/2022 9:36:32 AM          5858 Error            Id = {00000000-0000-0000-0000-000000000000}; ClientMachine = WIN11-2; User = NT AUTHORITY\SYSTEM; ClientProcessId = 17504; Component = Unknown; Operation = Start IWbemServices::ExecQuery - root\CIMV2\security\microsofttpm : SELECT ManufacturerIdTxt FROM win32_tpm; ResultCode = 0x80041032; PossibleCause = Unknown
+4/25/2022 9:36:32 AM          5857 Information      Win32_TpmProvider provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = C:\Windows\System32\wbem\Win32_TPM.dll
+4/25/2022 9:36:32 AM          5857 Information      CIMWin32a provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 5432; ProviderPath = %systemroot%\system32\wbem\wmipcima.dll
+4/25/2022 9:36:31 AM          5858 Error            Id = {00000000-0000-0000-0000-000000000000}; ClientMachine = WIN11-2; User = NT AUTHORITY\SYSTEM; ClientProcessId = 17504; Component = Unknown; Operation = Start IWbemServices::ExecQuery - ROOT\CIMV2 : SELECT ID FROM Win32_ServerFeature; ResultCode = 0x80041010; PossibleCause = Unknown
+4/25/2022 9:36:31 AM          5857 Information      WmiPerfClass provider started with result code 0x0. HostProcess = wmiprvse.exe; ProcessID = 4776; ProviderPath = C:\Windows\System32\wbem\WmiPerfClass.dll
+
+   ProviderName: Microsoft-Windows-CodeIntegrity
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:31:17 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:17 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:17 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:17 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:17 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:16 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:16 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:16 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:16 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+4/25/2022 9:31:16 AM          3033 Error            Code Integrity determined that a process (\Device\HarddiskVolume8\Windows\System32\SIHClient.exe) attempted to load \Device\HarddiskVolume8\Program Files (x86)\Kaspersky Lab\Kaspersky Total Security 21.3\x64\antimalware_provider.dll that did not meet the Windows signing level requirements.
+
+   ProviderName: Microsoft-Windows-WinRM
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:30:52 AM           142 Error            WSMan operation Enumeration failed, error code 2150858770
+4/25/2022 9:30:52 AM           161 Error            The client cannot connect to the destination specified in the request. Verify that the service on the destination is running and is accepting requests. Consult the logs and documentation for the WS-Management service running on the destination, most commonly IIS or WinRM. If the destination is the WinRM service, run the foll… 
+
+   ProviderName: Microsoft-Windows-StorPort
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:30:45 AM           549 Error            This is the first instance of the error seen during this time period                     …
+4/25/2022 9:30:45 AM           549 Error            This is the first instance of the error seen during this time period                     …
+
+   ProviderName: Server
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:30:37 AM          2505 Error            The server could not bind to the transport \Device\NetBT_Tcpip_{C04946AA-8065-44AB-A9FF-9313C06B53CE} because another computer on the network has the same name.  The server could not start.
+
+   ProviderName: Microsoft-Windows-StorPort
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:30:36 AM           549 Error            This is the first instance of the error seen during this time period                     …
+
+   ProviderName: VBoxNetLwf
+
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+4/25/2022 9:30:33 AM            12 Error            The driver detected an internal driver error on \Device\VBoxNetLwf.
+
