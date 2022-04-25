@@ -156,7 +156,7 @@ Function Get-Parameter {
       #keep going if parameters were found
       if ($data.count -gt 0) {
           #$data is a hash table
-          $params=$data.keys | where {$common -notcontains $_} 
+          $params=$data.keys | Where-Object {$common -notcontains $_} 
           $count=($params | measure-object).count
           #only keep going if non-common parameters were found
           write-host "Found $count non-common parameters for $command" `
@@ -165,7 +165,7 @@ Function Get-Parameter {
           if ($count -gt 0) {
               #get information from each parameter
               
-              $params | foreach {
+              $params | ForEach-Object {
                   $name=$_
                   $type=$data.item($name).ParameterType
                   $aliases=$data.item($name).Aliases
@@ -360,6 +360,7 @@ function Get-Var {
   write-output " ** $($MyInvocation.Line.trim()) ** at $($MyInvocation.ScriptName):$($MyInvocation.ScriptLineNumber) char:$($MyInvocation.OffsetInLine)"
   # $argv
   $Var = (Get-Variable $varname -Scope 1).Value
+  $Var
 }
 
 function Get-MyParameters { 
@@ -396,7 +397,7 @@ function Get-MyParameters {
     #keep going if parameters were found
     if ($data.count -gt 0) {
         #$data is a hash table
-        $params=$data.keys | where {$common -notcontains $_} 
+        $params=$data.keys | Where-Object {$common -notcontains $_} 
         $count=($params | measure-object).count
         #only keep going if non-common parameters were found
         write-host "Found $count non-common parameters for $command" `
@@ -405,7 +406,7 @@ function Get-MyParameters {
         if ($count -gt 0) {
             #get information from each parameter
             
-            $params | foreach {
+            $params | ForEach-Object {
                 $name=$_
                 $type=$data.item($name).ParameterType
                 $aliases=$data.item($name).Aliases
