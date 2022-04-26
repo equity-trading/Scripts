@@ -63,6 +63,8 @@ function Test-Event-Xml {
 
 }
 
+
+
 # Test-Xml $mydoc
 
 # Test-Event-Xml $myevent
@@ -72,8 +74,69 @@ function Test-Event-Xml {
 
 # $myevent.SelectNodes("//*") | Select-Object -Expand Name
 
-# ( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "String" -Depth 3
-# ( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "Document" | Select-Xml -XPath "//Object" | foreach {$_.node.InnerXML}
+<# 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "String" -Depth 3
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "Document" | Select-Xml -XPath "//Object" | foreach {$_.node.InnerXML}
 # OuterXml
-( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "Document" | Select-Xml -XPath "//Object/Property" | 
-    foreach { $_.node | select Name,Type,NodeType,IsEmpty,HasAttributes,Attributes,HasChildNode,ChildNodes,InnerXml} | ft 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "Document" | Select-Xml -XPath "//Object/Property" |  ForEach-Object { $_.node | Where-Object {$_.IsEmpty -ne "True"} | Select-Object Name,Type,NodeType,IsEmpty,HasAttributes,Attributes,HasChildNodes,ChildNodes,InnerXml} | Format-Table -AutoSize
+
+
+@{n='Logs';e={($_.Group | Select-Object -First 3 @{n='Providers';e={'{0}({1})' -f $_.LogName,$_.Count}}).Providers.join(',') }},
+@{n='LastTimeCreated';e={$_.Group | Select-Object -Expand TimeCreated.ToString('MM/dd HH:mm:ss.fff') -First 1}}
+
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "Document" | Select-Xml -XPath "//Object/Property" |  
+    ForEach-Object { $_.node | Where-Object {$_.IsEmpty -ne "True"} |
+    Select-Object Name,Type,HasChildNodes,
+        @{n="ChildNodesText";e={(if($_.HasChildNodes -eq "True") {$_.ChildNodes |Select-Object -first 5 '#text'}).join(',') }}}, ChildNodes,InnerXml | 
+    Format-Table -AutoSize
+
+
+
+Values              Count Group      Name
+------              ----- -----      ----
+{Message, #text}        1 {Property} Message, System.Xml.XmlChildNodes
+{Id, #text}             1 {Property} Id, System.Xml.XmlChildNodes
+{Version, #text}        1 {Property} Version, System.Xml.XmlChildNodes
+{Qualifiers, #text}     1 {Property} Qualifiers, System.Xml.XmlChildNodes
+{Level, #text}          1 {Property} Level, System.Xml.XmlChildNodes
+
+#>
+
+
+#############################################################
+# Fet Event by RecID and Proiders
+# Get-EventRecId <RecId>,<Providers>
+# 
+function Get-EventRecId {
+    Param($RecId=11035, $Providers=('Service Control Manager'))
+    $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Providers -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $eTot=$EVENTS.Count
+    "RecID: $RecId; Providers:$($Providers -join('; ')); Total: $eTot Event$(($eTot -ne 1)?'s':'') "
+    if ($eTot) {
+        foreach ($E in $EVENTS) {
+            $pad=1;$eNo++; $E.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n") |
+            % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }
+        }
+        "RecID: $RecId; Providers:$Providers; Total: $eNo Event$(($eNo -ne 1)?'s':'') "
+    }
+}
+
+#############################################################
+# Convert to XML
+# 
+
+
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "String" -Depth 3
+
+Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0 | % {$_.ToXml() -replace("><",">`n<")}
+    
+$RecId=11035; $Prvds=('Service Control Manager'); $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Prvds -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $EVENTS | % {$pad=1;$eNo++; $_.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n")} |
+  % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }; "Total: $eNo Event$(($eNo -ne 1)?'s':'') "
+
+
+
+
+#############################################################
+# Convert to Json
+# 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json -Compress

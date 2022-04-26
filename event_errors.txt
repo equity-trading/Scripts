@@ -1,7 +1,29 @@
+
 #############################################################
-# List the error events during last 2 hours
+# Get Event by RecID and Proiders
+# Get-EventRecId <RecId>,<Providers>
+# 
+
+function Get-EventRecId {
+    Param($RecId=11035, $Providers=('Service Control Manager'))
+    $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Providers -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $eTot=$EVENTS.Count
+    "RecID: $RecId; Providers:$($Providers -join('; ')); Total: $eTot Event$(($eTot -ne 1)?'s':'') "
+    if ($eTot) {
+        foreach ($E in $EVENTS) {
+            $pad=1;$eNo++; $E.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n") |
+            % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }
+        }
+        "RecID: $RecId; Providers:$Providers; Total: $eNo Event$(($eNo -ne 1)?'s':'') "
+    }
+}
+
+
+
+
+#############################################################
+# List the error events during last 10 hours
 #
-(get-winevent -FilterHashtable @{Logname = (get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}).LogName;Level=(0,1,2); StartTime=((Get-Date).AddHours(-2))}) | sort-Object -Descending TimeCreated,ProviderName
+(get-winevent -FilterHashtable @{Logname = (get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-10))}).LogName;Level=(1,2); StartTime=((Get-Date).AddHours(-10))}) | select-object first 1 * | sort-Object -Descending TimeCreated,ProviderName
 
 ProviderName: Microsoft-Windows-CodeIntegrity
 

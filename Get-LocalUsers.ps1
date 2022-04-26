@@ -1,4 +1,13 @@
-function Get-LocalUsers {
+function Get-LocalUsers1 {
+    ForEach-Object ( $Usr in [ADSI] "WinNT://WIN11-2").psbase.Children | where { $_.psbase.schemaclassname -match 'user' } ) {
+        $hTbl=$Usr.PsBase.Properties
+        ForEach( $Key in $hTbl.Keys ) {
+            '[{0}]='{1}'' -f $key, $(switch ($key) { LoginHours {"LoginHours"} default { "$($hTbl.$key)"}; } )
+        }
+    }
+}
+
+function Get-LocalUsers2 {
     Param([string]$ComputerName=$env:COMPUTERNAME)
 
     [ADSI]$computer="WinNT://$ComputerName"
@@ -15,5 +24,8 @@ function Get-LocalUsers {
 
 # ([ADSI]"WinNT://$env:COMPUTERNAME").PsBase.Children | Where-Object {$_.SchemaClassName -match "user"}
 # set the date to compare against to midnight using '.Date'
-$refDate = (Get-Date).AddDays(-90).Date
-Get-LocalUsers | Where-Object { $_.LastLogin -eq 'Never' -or $_.LastLogin -lt $refDate } | Select-Object *
+# $refDate = (Get-Date).AddDays(-90).Date
+# Get-LocalUsers2 | Where-Object { $_.LastLogin -eq 'Never' -or $_.LastLogin -lt $refDate } | Select-Object *
+
+Get-LocalUsers1
+Get-LocalUsers2

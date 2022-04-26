@@ -1,0 +1,439 @@
+##############################
+### PowerShell One-Liners  ###
+##############################
+# These one-line commands are intended to be used in a PowerShell session. They are written so that you can get maximum benefit, often with minimum typing and without having to write a script. 
+# Because these are intended for use at the command prompt aliases are allowed and encouraged. I’ll assume you can figure out the alias if you don’t recognize it.
+# As written, many of them should not be copied and pasted into a script without reworking. Note that some of these expressions will work on Windows PowerShell and PowerShell 7 or require a Windows platform. 
+# You’ll have to try them out for yourself and adjust as necessary. You’ll need to add things like parameters and error handling. It may also be easier to break some of these into several steps when used in a script.
+
+#############################################################
+# Get the scriptblock content of a loaded function. Substitute the name of a function.
+#
+(get-item Function:\prompt).scriptblock
+
+#############################################################
+# Copy a function to a remote computer using a PSSession.
+#
+$f = $(get-item function:\Get-Foo).scriptblock
+Invoke-Command { New-Item -Name Get-Foo -Path Function: -Value $($using:f)} -session $s
+
+#############################################################
+# Get running scheduled tasks on a Windows system.
+#
+(get-scheduledtask).where({$_.state -eq 'running'})
+
+#############################################################
+# Get system uptime from multiple computers where $computers is an array of computer names running PowerShell v3 or later.
+#
+Get-CimInstance Win32_operatingsystem <# -ComputerName $computers #> |
+Select-Object PSComputername,LastBootUpTime,
+@{Name="Uptime";Expression = {(Get-Date) - $_.LastBootUptime}}
+
+#############################################################
+# Another way to get drive utilization using PSDrives.
+#
+Get-PSDrive -PSProvider filesystem | where-object {$_.used -gt 0} |
+select-Object -property Root,@{name="SizeGB";expression={($_.used+$_.free)/1GB -as [int]}},
+@{name="UsedGB";expression={($_.used/1GB) -as [int]}},
+@{name="FreeGB";expression={($_.free/1GB) -as [int]}},
+@{name="PctFree";expression={[math]::round(($_.free/($_.used+$_.free))*100,2)}}
+
+
+
+#############################################################
+# Work with quotes
+#
+
+$foo = 1,2,3
+"$foo[1]"     # yields "1 2 3[1]"
+"$($foo[1])"  # yields "2"
+
+$bar = "abc"
+"$bar.Length"    # yields "abc.Length"
+"$($bar.Length)" # yields "3"
+
+
+#############################################################
+# List installed applications and a few details. But use with caution. It is slow, not necessarily complete, and could have unexpected consequences. Heres a good link about using this class and alternatives.
+#
+gcim win32_product <# -ComputerName $env:computername #>  | 
+Sort-Object -property Vendor,Name | <# Select-Object #> Format-Table -property <#Vendor,#> Name,Version,
+@{Name="Installed";Expression = {($_.InstallDate.Insert(4,"-").insert(7,"-") -as [datetime]).ToShortDateString()}},
+@{Name="InstallSource";Expression = {$_.InstallSource+$_.PackageName}},
+InstallLocation
+
+#############################################################
+# Get details about all external scripts in your %PATH%.
+#
+gcm -commandtype externalscript | Get-Item | 
+Select-Object Directory,Name,Length,CreationTime,LastwriteTime,
+@{name="Signature";Expression={(Get-AuthenticodeSignature $_.fullname).Status }}
+
+#############################################################
+# Get folder utilization for a given directory.
+#
+dir -path C:\home -file -recurse -force | 
+measure-object length -sum -max -average | 
+Select-Object @{name="Total Files";Expression={$_.count}},
+@{name="Largest File(MB)";Expression={"{0:F2}" -f ($_.maximum/1MB)}},
+@{name="Average Size(MB)";Expression={"{0:F2}" -f ($_.average/1MB)}},
+@{name="Total Size(MB)";Expression={"{0:F2}" -f ($_.sum/1MB)}}
+
+############################################################# 
+# Get event log utilization for remote computers defined in $computers. The remote computers must be running PowerShell v3 or later.
+#
+gcim Win32_NTEventLogFile <#-computer $computers#> -filter  "NumberOfRecords > 0" | 
+Select-Object @{Name="Computername";Expression={$_.CSName}},
+LogFileName,
+NumberOfRecords,
+@{Name="Size(KB)";Expression={$_.FileSize/1kb}},
+@{Name="MaxSize(KB)";Expression={($_.MaxFileSize/1KB) -as [int]}}, 
+@{name="PercentUsed";Expression={[math]::round(($_.filesize/$_.maxFileSize)*100,2)}} | Sort Computername,PercentUsed | 
+Format-Table -GroupBy Computername -property LogFileName,NumberOfRecords,*Size*,PercentUsed
+
+#############################################################
+# Get free space for drive C on the local computer formatted in GB
+#
+(gcim win32_logicaldisk -filter "deviceid =  C: ").FreeSpace/1gb
+#or use the PSDrive
+(gdr c).Free/1gb
+
+#############################################################
+# Get a date string in the format year-month-day-hour-min-second. The abbreviations in the format string are case-sensitive.
+#
+get-date -format yyyyMMddhhmmss
+
+#############################################################
+# Get the last time your computer booted. Can be modified to query remote computers.
+#
+(gcim win32_operatingsystem).LastBootUpTime
+# or modify to get uptime
+(get-date) - ((gcim win32_operatingsystem).LastBootUpTime)
+
+#############################################################
+# Get configured TrustedHosts.
+#
+(get-wsmaninstance wsman/config/client).trustedhosts
+
+#############################################################
+# Get all drives identified by a standard drive letter. Im suppressing errors to ignore non-existent drive letters.
+#
+get-volume -driveletter (97..122) -ErrorAction SilentlyContinue
+
+#############################################################
+# Get total physical memory formatted as GB.
+#
+gcim win32_computersystem <#-computer SRV1,SRV2 #> | Select PSComputername,@{Name="Memory";Expression={$_.TotalPhysicalMemory/1GB -as [int]}}
+
+#############################################################
+# Get IPv4 addresses on your local adapters.
+#
+Get-NetIPAddress -AddressFamily IPv4 | where-object IPAddress -notmatch "^(169)|(127)" | Sort-Object IPAddress | select IPaddress,Interface*
+# or all ip-addresses
+Get-NetIPAddress -AddressFamily IPv4 | Sort-Object IPAddress | select IPaddress,Interface* 
+
+#############################################################
+# Find all processes that use a given module (dll). You can filter by the dll name or use part of a path.
+#
+get-process | Where { $_.Modules.filename -match "netapi32.dll"}
+
+############################################################# 
+# Get event logs changed during 4 hours
+get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}
+(get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}).LogName
+
+############################################################# 
+# Get error and warnings event during last 2 hours in 'System','Application','Setup','Security' logs
+Get-WinEvent -FilterHashtable @{LogName=('System','Application','Setup','Security'); Level=(0,1,2,3); StartTime=((Get-Date).AddHours(-2))} -ErrorAction Ignore | sort-Object ProviderName,TimeCreated
+
+#############################################################
+# List the error events during last 2 hours
+#
+(get-winevent -FilterHashtable @{Logname = (get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}).LogName;Level=(0,1,2); StartTime=((Get-Date).AddHours(-2))}) | sort-Object -Descending TimeCreated,ProviderName
+
+#############################################################
+# Since PowerShell Core and PowerShell 7 do not include the Get-Eventlog cmdlet, heres a one-liner to list the last 10 errors in the System event log. A level value of 3 will give you warnings.
+#
+get-winevent -FilterHashtable @{Logname = 'System';Level=2} -MaxEvents 10 | sort-Object ProviderName,TimeCreated
+
+
+
+#############################################################
+# List all PowerShell profile script settings. You will see different values for different hosts, such as the PowerShell ISE, as well as between Windows PowerShell and PowerShell 7.
+#
+$profile | select *host* | format-list
+
+#############################################################
+# Show what PowerShell profile scripts exist.
+#
+($profile.psobject.properties).where({$_.name -ne 'length'}).where({Test-Path $_.value }) | Select-Object Name,Value
+
+#############################################################
+# Get the current date and time formatted as UTC time.
+#
+(get-date).ToUniversalTime()
+# or pretty it up
+"$((get-date).ToUniversalTime()) UTC"
+"$((Get-Date).ToUniversalTime().tolongdatestring()) UTC"
+
+#############################################################
+# Get a formatted report of all commands with a synopsis.
+#
+(Get-Command).where({ $_.source -match "Wdac"}) | Sort-Object Source, CommandType, Name | Format-Table -AutoSize -GroupBy Source -Property CommandType, Name, 
+    @{Name = "Synopsis"; Width=100; Expression = {(Get-Help $_.name).Synopsis  -replace "`r",'' -replace "`n",'' -replace '\s+',' '}} #  -replace '(?<=.{100}).+' 
+
+(Get-Command).where({ $_.source }) | Format-Table -AutoSize -Property Source, CommandType, @{Name="Synopsis";Width=100;Expression={(Get-Help $_.name).Synopsis  -replace "[`r`n]",'' -replace '\s+',' '}} > all_commands.txt
+
+#############################################################
+# How long has your PowerShell session been running?
+#
+(Get-Date) - (get-process -id $pid).starttime
+
+
+#############################################################
+# OS Info - Users, Groups Services
+#
+ ([ADSI] "WinNT://$Env:ComputerName").Children | select SchemaClassName,Name,Path
+
+#############################################################
+# User Properties
+#
+
+([ADSI] "WinNT://$Env:ComputerName").Children | where { $_.SchemaClassName -eq 'User' }  | % {
+    $hTbl=$_;
+    "`n{0,35} : {1}" -f "UserName", $hTbl.Name.Value
+    ForEach( $Prop in ($hTbl | Get-Member -MemberType Property).Name ) {
+        try { if ($hTbl.$Prop) { $Val=[string]$hTbl.$Prop; if (($Val.Length -gt 0) -and ($Prop -ne "Name") ) { "{0,35} : {1}" -f $Prop, $(switch ($Key) { default { "$($hTbl.$Prop)"}; } ) } } } finally {}
+    }
+}
+
+#############################################################
+# User Accounts
+#
+# gcim win32_UserAccount | select *
+ Get-LocalUser
+ gcim win32_UserAccount | Format-Table -autosize Name,Caption,AccountType,SID,Domain,LocalAccount,Description
+ gcim win32_UserAccount | Format-Table -autosize @{n='UserName';e={$_.Caption}},@{n='Local';e={if($_.LocalAccount -eq 'True') {'Yes'} else {'No'} }},Description
+ gcim win32_UserAccount | Format-Table -autosize @{n='UserName';e={$_.Caption}},@{n='Local';e={if($_.LocalAccount -eq 'True') {'Yes'} else {'No'} }},Description,CimInstanceProperties,CimSystemProperties
+
+ gcim win32_UserAccount | select-object -expand CimInstanceProperties
+
+([ADSI] "WinNT://$Env:ComputerName")).Chidren | select SchemaClassName,Name,Path
+
+([ADSI] "WinNT://$Env:ComputerName").Children | where { $_SchemaClassName -eq 'User' }  | % {
+    $hTbl=$_; 
+     "`n{0,35} : {1}" -f "UserName", $hTbl.Name.Value
+     ForEach( $Key in $hTbl.Keys ) {
+         $Val=$hTbl.$Key; if (($Val.Length -gt 0) -and ($Key -ne "Name") ) { "{0,35} : {1}" -f $key, $(switch ($key) { LoginHours {"tbd"}; default { "$($hTbl.$key)"}; } ) }
+     }
+} 
+
+
+ForEach ( $Usr in ([ADSI] "WinNT://$env:computername") | where { $_.psbase.schemaclassname -match 'user' } ) {
+     # $hTbl=$Usr.PsBase.Properties
+     $hTbl=$Usr
+     "`n{0,35} : {1}" -f "UserName", $hTbl.Name.Value
+     ForEach( $Key in $hTbl.Keys ) {
+         $Val=$hTbl.$Key; if (($Val.Length -gt 0) -and ($Key -ne "Name") ) { "{0,35} : {1}" -f $key, $(switch ($key) { LoginHours {"tbd"}; default { "$($hTbl.$key)"}; } ) }
+     }
+}
+
+([ADSI] "WinNT://WORKGROUP/WIN11-2/alexe") | select *
+([ADSI] "WinNT://WORKGROUP/WIN11-2/alexe").PsBase | select *
+([ADSI] "WinNT://WORKGROUP/WIN11-2/alexe").PsBase.Properties
+
+([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties
+([ADSI] "WinNT://WORKGROUP/WIN11-2/Guest").PsBase
+([ADSI] "WinNT://WORKGROUP/WIN11-2/DefaultAccount").PsBase
+([ADSI] "WinNT://WORKGROUP/WIN11-2/WDAGUtilityAccount").PsBase
+
+
+ ([ADSI] "WinNT://WIN11-2").psbase.Children | where { $_.psbase.schemaclassname -match 'user' } |  <#Format-Table#> Select-Object -property `
+             @{Name='Name';Expression= { $_.name }},`
+             @{Name='Fullname';Expression= { $_.Fullname }},`
+             @{Name='Description';Expression= { $_.Description }},`
+             @{Name='AutoUnlockInterval';Expression= { $_.AutoUnlockInterval }},`
+             @{Name='BadPasswordAttempts';Expression= { $_.BadPasswordAttempts }},`
+             @{Name='HomeDirDrive';Expression= { $_.HomeDirDrive }},`
+             @{Name='HomeDirectory';Expression= { $_.HomeDirectory }},`
+             @{Name='LastLogin';Expression= { $_.LastLogin }},`
+             @{Name='LockoutObservationInterval';Expression= { $_.LockoutObservationInterval }},`
+             @{Name='LoginHours';Expression= { $_.LoginHours }},`
+             @{Name='LoginScript';Expression= { $_.LoginScript }},`
+             @{Name='MaxBadPasswordsAllowed';Expression= { $_.MaxBadPasswordsAllowed }},`
+             @{Name='MaxPasswordAge';Expression= { $_.MaxPasswordAge }},`
+             @{Name='MaxStorage';Expression= { $_.MaxStorage }},`
+             @{Name='MinPasswordAge';Expression= { $_.MinPasswordAge }},`
+             @{Name='MinPasswordLength';Expression= { $_.MinPasswordLength }},`
+             @{Name='objectSid';Expression= { $_.objectSid }},`
+             @{Name='Parameters';Expression= { $_.Parameters }},`
+             @{Name='PasswordAge';Expression= { $_.PasswordAge }},`
+             @{Name='PasswordExpired';Expression= { $_.PasswordExpired }},`
+             @{Name='PasswordHistoryLength';Expression= { $_.PasswordHistoryLength }},`
+             @{Name='PrimaryGroupID';Expression= { $_.PrimaryGroupID }},`
+             @{Name='Profile';Expression= { $_.Profile }},`
+             @{Name='UserFlags';Expression= { $_.UserFlags }}
+
+#############################################################
+# User LastLogin
+# 
+([ADSI] "WinNT://WORKGROUP/WIN11-2/alexe").LastLogin
+
+#############################################################
+# Recently Created User Accounts
+# 
+
+$UsrProp=([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties; $UsrProp.Keys | % { "[{0}]='{1}'" -f $_,$UsrProp.$_.ToString()}
+
+([ADSI] "WinNT://WIN11-2").psbase.Children | where { $_.psbase.schemaclassname -match 'user' }
+
+ForEach-Object ( $Usr in [ADSI] "WinNT://WIN11-2").psbase.Children | where { $_.psbase.schemaclassname -match 'user' } ) {
+    $hTbl=$Usr.PsBase.Properties
+    ForEach( $Key in $hTbl.Keys ) {
+        '[{0}]='{1}'' -f $key, $(switch ($key) { LoginHours {"LoginHours"} default { "$($hTbl.$key)"}; } )
+    }
+    break
+}
+
+
+#############################################################
+# Get Data Type Members and Properites
+# 
+ 
+'value members: {0}' -f "$($parameter.Value | Get-Member)"
+# value members: bool Equals(System.Object obj) int GetHashCode() type GetType() string ToString() System.Collections.ObjectModel.Collection[string] Aliases {get;} System.Collections.ObjectModel.Collection[System.Attribute] Attributes {get;} bool IsDynamic {get;set;} string Name {get;set;} System.Collections.Generic.Dictionary[string,System.Management.Automation.ParameterSetMetadata] ParameterSets {get;} type ParameterType {get;set;} bool SwitchParameter {get;}
+'value values: {0}' -f "$($parameter.Value | select-object *)"
+# value values: @{Name=Arg1; ParameterType=System.Object; ParameterSets=System.Collections.Generic.Dictionary`2[System.String,System.Management.Automation.ParameterSetMetadata]; IsDynamic=False; Aliases=System.Collections.ObjectModel.Collection`1[System.String]; Attributes=System.Collections.ObjectModel.Collection`1[System.Attribute]; SwitchParameter=False}    
+ 
+'properties: {0}' -f "$(  (([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties | Get-Member -MemberType Property).Name )"
+# properties: Count IsFixedSize IsReadOnly IsSynchronized Keys PropertyNames SyncRoot Values
+
+'methods: {0}' -f "$(  (([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties | Get-Member -MemberType method ).Name -join('() ') )()"
+# methods: Add() Clear() Contains() CopyTo() Equals() GetEnumerator() GetHashCode() GetType() Remove() ToString()
+
+'all members: {0}' -f "$(  ([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties | Get-Member  )"
+# all members: void IDictionary.Add(System.Object key, System.Object value) void IDictionary.Clear() bool Contains(string propertyName), bool IDictionary.Contains(System.Object key) void CopyTo(System.DirectoryServices.PropertyValueCollection[] array, int index), void ICollection.CopyTo(array array, int index) bool Equals(System.Object obj) System.Collections.IDictionaryEnumerator GetEnumerator(), System.Collections.IDictionaryEnumerator IDictionary.GetEnumerator(), System.Collections.IEnumerator IEnumerable.GetEnumerator() int GetHashCode() type GetType() void IDictionary.Remove(System.Object key) string ToString() System.DirectoryServices.PropertyValueCollection Item(string propertyName) {get;}, System.Object IDictionary.Item(System.Object key) {get;set;} int Count {get;} bool IsFixedSize {get;} bool IsReadOnly {get;} bool IsSynchronized {get;} System.Collections.ICollection Keys {get;} System.Collections.ICollection PropertyNames {get;} System.Object SyncRoot {get;} System.Collections.ICollection Values {get;}
+
+
+# ([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties | Get-Member -MemberType Properties
+#   TypeName: System.DirectoryServices.PropertyCollection
+# Name           MemberType Definition
+# ----           ---------- ----------
+# Count          Property   int Count {get;}
+# ...
+
+#############################################################
+# Collect information about computer
+# https://docs.microsoft.com/en-us/powershell/scripting/samples/collecting-information-about-computers?view=powershell-7.2
+#
+Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object -expand CimInstanceProperties | Sort-Object Name |  Format-Table Name,Value,Flags
+
+#############################################################
+# Search Commands and Modules by Verbs
+# https://docs.microsoft.com/en-us/powershell/scripting/samples/using-format-commands-to-change-output-view?view=powershell-7.2
+Get-Command -Verb Format -Module Microsoft.PowerShell.Utility
+Get-Command -Verb Format | Format-Table -Wrap -AutoSize CommandType, Name, Source, @{n='Definition';e={$_.Definition -replace("`n","") }}
+
+#############################################################
+# Install/Unistall module
+# 
+Install-Module -Name PSDesiredStateConfiguration -AllowPrerelease
+Uninstall-Module -Name PSDesiredStateConfiguration
+
+
+#############################################################
+# Find module
+# 
+Get-InstalledModule PSDesiredStateConfiguration
+Get-InstalledModule PSDesiredStateConfiguration | select *
+$env:PSModulePath -split ';' | Get-ChildItem -ea 0 | where {$_.FullName -like '*PSDesiredStateConfiguration*'} | select -first 2 FullName, Attributes, CreationTime, LastAccessTime, LastWriteTime, Mode, LinkTarget
+Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recurse
+
+
+#############################################################
+# Find file
+# 
+Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recurse
+Get-ChildItem C:\ 'PSDesiredStateConfiguration' -Recurse -ea 0
+
+#############################################################
+# Get Event by RecID and Proiders
+# Get-EventRecId <RecId>,<Providers>
+# 
+function Get-EventRecId {
+    Param($RecId=11035, $Providers=('Service Control Manager'))
+    $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Providers -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $eTot=$EVENTS.Count
+    "RecID: $RecId; Providers:$($Providers -join('; ')); Total: $eTot Event$(($eTot -ne 1)?'s':'') "
+    if ($eTot) {
+        foreach ($E in $EVENTS) {
+            $pad=1;$eNo++; $E.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n") |
+            % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }
+        }
+        "RecID: $RecId; Providers:$Providers; Total: $eNo Event$(($eNo -ne 1)?'s':'') "
+    }
+}
+
+#############################################################
+# UserName
+# 
+$env:UserName
+
+#############################################################
+# ComputerName
+# 
+$env:ComputerName
+
+#############################################################
+# 32/64 bit
+# 
+[Environment]::Is64BitProcess
+
+#############################################################
+# PowerShell Version
+# 
+$PSVersionTable.PSVersion
+
+
+#############################################################
+# Print HashTable or Dictoionary
+# 
+"HashTable[$($HashTable.Count)]: $($HashTable.Keys| ForEach-Object { "$_=$($HashTable.$_ -join ',')" })"
+"PSBoundParameters[$($PSBoundParameters.Count)]: $($PSBoundParameters.Keys| ForEach-Object { "[$_]='$($PSBoundParameters.$_)'" })"
+[string[]] $l_array = ($PSBoundParameters | Out-String -Stream) -ne '' | select-object -Skip 2; write-output "PSBoundParameters[$(($l_array).Length)]: $($l_array -join '; ')"
+
+
+#############################################################
+# Print Array
+# 
+"args[$(($args).Length)]: $($args -join '; ')""args[$(($args).Length)]: $($args -join '; ')"
+
+
+#############################################################
+# Convert to XML
+# 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "String" -Depth 3
+
+Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0 | % {$_.ToXml() -replace("><",">`n<")}
+    
+$RecId=11035; $Prvds=('Service Control Manager'); $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Prvds -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $EVENTS | % {$pad=1;$eNo++; $_.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n")} |
+  % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }; "Total: $eNo Event$(($eNo -ne 1)?'s':'') "
+
+
+#############################################################
+# Convert to Json
+# 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json -Compress
+
+
+#############################################################
+# Enable execution of scripts
+# Error: "execution of scripts is disabled on this system."
+#
+# https://stackoverflow.com/questions/4037939/powershell-says-execution-of-scripts-is-disabled-on-this-system
+
+# As an Administrator, you can set the execution policy by typing this into your PowerShell window:
+Set-ExecutionPolicy RemoteSigned
+# You can bypass this policy for a single file by adding -ExecutionPolicy Bypass when running PowerShell
+powershell -ExecutionPolicy Bypass -File script.ps1
+
