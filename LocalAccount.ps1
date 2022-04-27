@@ -712,4 +712,4 @@ function Set-LocalUser
     }
 }
 
-Export-ModuleMember -Function *
+# Export-ModuleMember -Function *

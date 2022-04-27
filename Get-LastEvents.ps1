@@ -2,6 +2,56 @@
 # Get Error events occured during last X hours
 #
 
+# C:\home\tmp\errors-warnings-events-2022-04-26.log
+function Out-Events {
+    param($Events)
+    foreach ($e in $Events) {
+        Format-Table @{n='User';e={(Get-StandardUser $_.UserId)}},
+            UserId,
+            TimeCreated,
+            ProviderName,
+            Level,
+            LevelDisplayName,
+            OpcodeDisplayName,
+            RecordId,
+            Id,
+            ProcessId, 
+            @{n='Message Text';e={ $_.Message -replace "`r",'' -replace "`n",'\n' -replace "\s+"," " -replace '(?<=.{500}).+' }}
+    }
+}
+
+functon Out-Table {
+}
+
+functon Out-Record {
+}
+
+functon Run-Cmd {
+    param([Script] $Cmd)
+#    $Cmd="Get-Service -Name '$pattern*' "
+    "Cmd: {0}" -f $Cmd
+    $Objects=@( Invoke-Command -ScriptBlock { param($LocalCmd) Invoke-Expression -Command:$LocalCmd } -ArgumentList $Cmd )     
+    "There are {0} matching objects, cmd: {1}" -f $Objects.Count, $Cmd
+	if ($Objects.Count -gt 1) { 
+		"There are {0} resulting records, cmd: {1}" -f $Objects.Count, $Cmd
+        if ( Get-Command -Name Out-Table -CommmandType Function-ErrorAction Ignore ) {   $Objects | Out-Table  } else {  $Objects | Format-Table * }
+	} elseif ($Objects.Count -eq 1) { 
+        "There is just one resulting record, cmd: {0}" -f $Cmd
+        if ( Get-Command -Name Out-Table -CommmandType Function-ErrorAction Ignore ) {   $Objects | Out-Record  } else {  $Objects | Select-Object * }
+	} else {
+		"There is no result returned, cmd: {0}" -f $Cmd
+	}
+}
+
+function Get-UserEvents {
+    param([int]$Hours=10, [int[]]$Levels=(1,2),[string[]] $Users="*", [string[]] $Sids="*", [string[]] $Logs="*", [int]$NoOfEvents=1000000)
+    $FilterHashtable=@{LogName=$Logs; Level=$Levels; StartTime=((Get-Date).AddHours(-$Hours))}
+    "FilterHashtable[$($FilterHashtable.Count)]: $($FilterHashtable.Keys| ForEach-Object { "$_=$($FilterHashtable.$_ -join ',')" })"
+    Run-Cmd -Cmd Get-WinEvent -MaxEvent $NoOfEvents -ErrorAction Ignore -FilterHashtable $FilterHashtable
+}
+
+
+
 function Get-LastEvents {
     param([int]$Hours=10, [int[]]$Levels=(1,2), [int]$NoOfEvents=1000)
     $eNo=0

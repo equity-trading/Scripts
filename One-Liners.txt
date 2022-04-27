@@ -282,18 +282,17 @@ ForEach ( $Usr in ([ADSI] "WinNT://$env:computername") | where { $_.psbase.schem
 #############################################################
 # Recently Created User Accounts
 # 
+ 
+ wmic useraccount
+ wmic useraccount where disabled='FALSE'
+ wmic useraccount where disabled='FALSE' get sid
 
-$UsrProp=([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties; $UsrProp.Keys | % { "[{0}]='{1}'" -f $_,$UsrProp.$_.ToString()}
+ whoami /all
+$Prop=([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties; 
+" ** {0,31} : {1} **" -f "User", $Prop.Name.Value; 
+$Prop.Keys | % { $k=$_;$v=$Prop.$k.value;$t=$v.GetType();switch($t) { int {$v=$v.ToString()}; string { if ($k -eq "Name") {$k="-";} }; default {$v="tbd"}}; if($k -ne "-") { "{0,35} : {1}" -f "$k($t)",$v }  }
 
-([ADSI] "WinNT://WIN11-2").psbase.Children | where { $_.psbase.schemaclassname -match 'user' }
 
-ForEach-Object ( $Usr in [ADSI] "WinNT://WIN11-2").psbase.Children | where { $_.psbase.schemaclassname -match 'user' } ) {
-    $hTbl=$Usr.PsBase.Properties
-    ForEach( $Key in $hTbl.Keys ) {
-        '[{0}]='{1}'' -f $key, $(switch ($key) { LoginHours {"LoginHours"} default { "$($hTbl.$key)"}; } )
-    }
-    break
-}
 
 
 #############################################################
@@ -354,7 +353,34 @@ Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recu
 # Find file
 # 
 Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recurse
-Get-ChildItem C:\ 'PSDesiredStateConfiguration' -Recurse -ea 0
+Get-ChildItem C:\ 'PSDesiredStateConfiguration*' -Recurse -ea 0
+Get-ChildItem C:\ 'PsGetSid*' -Recurse -ea 0
+
+#############################################################
+# Find files created during last 60 days, aka newer than 60 days 
+# 
+$limit = (Get-Date).AddDays(-60)
+$path = "Y:"
+Get-ChildItem -Path $path -Recurse -Force | Where-Object { !$_.PSIsContainer -and $_.CreationTime -gt $limit }
+
+#############################################################
+# Find files accessed during last 60 dayss
+# 
+$limit = (Get-Date).AddDays(-60)
+$path = "Y:\"
+# LastAccessTime # LastWriteTime
+Get-ChildItem -Path $path -Recurse -Force | Where-Object { !$_.PSIsContainer -and $_.LastAccessTime -gt $limit }
+
+
+#############################################################
+# Delete files and empty folders older than 150 days
+# 
+$limit = (Get-Date).AddDays(-150)
+$path = "C:\Some\Path"
+# Delete files older than the $limit.
+Get-ChildItem -Path $path -Recurse -Force | Where-Object { !$_.PSIsContainer -and $_.CreationTime -lt $limit } | Remove-Item -Force -WhatIf
+# Delete any empty directories left behind after deleting the old files.
+Get-ChildItem -Path $path -Recurse -Force | Where-Object { $_.PSIsContainer -and (Get-ChildItem -Path $_.FullName -Recurse -Force | Where-Object { !$_.PSIsContainer }) -eq $null } | Remove-Item -Force -Recurse -WhatIf
 
 #############################################################
 # Get Event by RecID and Proiders
