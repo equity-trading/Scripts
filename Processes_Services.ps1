@@ -1,45 +1,3 @@
-# Get-Process WDDriveService,Sysmon,Sysmon,ServiceShell
-param([string[]]$name,[int[]]$id)
-
-function ps-info1 ($pattern='*',[int]$id=$null) {
-	$script:Services=@{}	
-	'pattern: {0}' -f $pattern
-	
-	Foreach($wmi in (Get-WmiObject "Win32_Service" -ea 0 -Filter 'Name like "${pattern}*" and ProcessId>0'  | select -first 1 ) ) { 
-		$script:Services[$wmi.ProcessId]+=@($wmi) 
-	}
-	'4540 is {0}' -f $script:Services.4540
-	$script:Services
-	return
-	Foreach($p in (Get-Process $pattern -ea 0) ) {
-		'pid: {0} name: {1} services: {2} {3}' -f $p.Id, $p.ProcessName, $script:Services[$p.Id].Count, $script:Services["$p.Id"] -join ','
-		[pscustomobject]@{
-			ProcessName         = $p.ProcessName
-			Id                  = $p.Id
-			TotalProcessorTime  = $p.TotalProcessorTime
-			UserProcessorTime   = $p.UserProcessorTime
-			WorkingSet          = $p.WorkingSet
-			WorkingSet64        = $p.WorkingSet64
-			CPU                 = $p.CPU
-			VM                  = $p.VM
-			PM                  = $p.PM
-			Responding          = $p.Responding
-			ExitCode            = $p.ExitCode
-			MainWindowTitle     = $p.MainWindowTitle
-			Threads             = $p.Threads
-			MainModule          = $p.MainModule
-			Modules             = $p.Modules
-			Product             = $p.Product
-			ProductVersion      = $p.ProductVersion
-			Path                = $p.Path
-			Services            = $script:Services[$p.Id]
-			StartTime           = $p.StartTime
-			ExitTime            = $p.ExitTime 
-		}
-		# $services = Get-WmiObject "Win32_Service" -filter "ProcessId=$($p.Id)"
-		# Add-Member -InputObject $p -MemberType NoteProperty  -Name "Services" -Value $(($services | % {$_.name}) -join ',') -Force
-	}
-}
 
 function proc_obj($p) {
 	$PidStr=$p.Id.ToString()
@@ -127,13 +85,15 @@ function pid-service-map($service_pattern) {
 }
 
 # .\Processes_Services.ps1 -name v*
+# .\Processes_Services.ps1 -name v* | Out-String -Stream | Select-String "Video"  
 # .\Processes_Services.ps1 -id 1944,2552 
-# .\Processes_Services.ps1 -id 1944,2552 | Out-String -Stream|Select-String "vmcompute"
 
 pid-service-map
-# 'pid-service-map.Count: {0} ' -f $script:pid2services.Count
+'pid-service-map.Count: {0} ' -f $script:pid2services.Count
 # foreach($key in $script:pid2services.keys) { echo "$key is $(${script:pid2services}.$key)" }
 # break
+
+
 
 $OutFormat=@{ Label="Name"; Expression={$_.ProcessName}; Width=20},
 	@{ Label="PID"; Expression={$_.Id}; Width=12},

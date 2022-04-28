@@ -69,6 +69,59 @@ gcm -commandtype externalscript | Get-Item |
 Select-Object Directory,Name,Length,CreationTime,LastwriteTime,
 @{name="Signature";Expression={(Get-AuthenticodeSignature $_.fullname).Status }}
 
+
+#############################################################
+# Get Computer Serial Number
+(Get-WmiObject win32_bios).serialnumber                   
+GC70G73
+
+PS C:\home\src\Scripts> (Get-WmiObject win32_bios) | Select *
+
+
+RunspaceId                     : d11ccdb2-1b0d-434f-be08-a69a58103adc
+__GENUS                        : 2
+__CLASS                        : Win32_BIOS
+__SUPERCLASS                   : CIM_BIOSElement
+__DYNASTY                      : CIM_ManagedSystemElement
+__RELPATH                      : Win32_BIOS.Name="2.14.0",SoftwareElementID="2.14.0",SoftwareElementState=3,TargetOperatingSystem=0,Version="DELL   - 1072009"
+__PROPERTY_COUNT               : 31
+__DERIVATION                   : {CIM_BIOSElement, CIM_SoftwareElement, CIM_LogicalElement, CIM_ManagedSystemElement}
+__SERVER                       : WIN11-2
+__NAMESPACE                    : root\cimv2
+__PATH                         : \\WIN11-2\root\cimv2:Win32_BIOS.Name="2.14.0",SoftwareElementID="2.14.0",SoftwareElementState=3,TargetOperatingSystem=0,Version="DELL   - 1072009"
+BiosCharacteristics            : {7, 9, 11, 12…}
+BIOSVersion                    : {DELL   - 1072009, 2.14.0, American Megatrends - 5000F}
+BuildNumber                    : 
+Caption                        : 2.14.0
+CodeSet                        : 
+CurrentLanguage                : en|US|iso8859-1
+Description                    : 2.14.0
+EmbeddedControllerMajorVersion : 255
+EmbeddedControllerMinorVersion : 255
+IdentificationCode             : 
+InstallableLanguages           : 1
+InstallDate                    : 
+LanguageEdition                : 
+ListOfLanguages                : {en|US|iso8859-1}
+Manufacturer                   : Dell Inc.
+Name                           : 2.14.0
+OtherTargetOS                  : 
+PrimaryBIOS                    : True
+ReleaseDate                    : 20211216000000.000000+000
+SerialNumber                   : GC70G73
+SMBIOSBIOSVersion              : 2.14.0
+SMBIOSMajorVersion             : 3
+SMBIOSMinorVersion             : 2
+SMBIOSPresent                  : True
+SoftwareElementID              : 2.14.0
+SoftwareElementState           : 3
+Status                         : OK
+SystemBiosMajorVersion         : 2
+SystemBiosMinorVersion         : 14
+TargetOperatingSystem          : 0
+Version                        : DELL   - 1072009
+
+
 #############################################################
 # Get folder utilization for a given directory.
 #
@@ -136,6 +189,202 @@ Get-NetIPAddress -AddressFamily IPv4 | Sort-Object IPAddress | select IPaddress,
 # Find all processes that use a given module (dll). You can filter by the dll name or use part of a path.
 #
 get-process | Where { $_.Modules.filename -match "netapi32.dll"}
+
+#############################################################
+# Gwt Process Owner
+$proc=Get-CimInstance Win32_Process -Filter "name like 'notepad%'"
+Invoke-CimMethod -InputObject $proc -MethodName GetOwner
+
+oreach($proc in Get-CimInstance Win32_Process -Filter "name like 'k%'") { Invoke-CimMethod -InputObject $proc -MethodName GetOwner }
+Domain  ReturnValue User  PSComputerName
+------  ----------- ----  --------------
+                  2
+                  2
+WIN11-2           0 alexe
+
+PS C:\home\src\Scripts> Get-CimInstance Win32_Process -Filter "name like 'k%'" | fl *
+
+
+ProcessName                : kpm_service.exe
+Handles                    : 435
+VM                         : 156045312
+WS                         : 30523392
+Path                       : 
+Caption                    : kpm_service.exe
+Description                : kpm_service.exe
+InstallDate                : 
+Name                       : kpm_service.exe
+Status                     : 
+CreationClassName          : Win32_Process
+CreationDate               : 4/27/2022 8:31:45 AM
+CSCreationClassName        : Win32_ComputerSystem
+CSName                     : WIN11-2
+ExecutionState             : 
+Handle                     : 5432
+KernelModeTime             : 21875000
+OSCreationClassName        : Win32_OperatingSystem
+OSName                     : Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk1\Partition4
+Priority                   : 8
+TerminationDate            : 
+UserModeTime               : 139218750
+WorkingSetSize             : 30523392
+CommandLine                : 
+ExecutablePath             : 
+HandleCount                : 435
+MaximumWorkingSetSize      : 
+MinimumWorkingSetSize      : 
+OtherOperationCount        : 45169
+OtherTransferCount         : 563233
+PageFaults                 : 305543
+PageFileUsage              : 11260
+ParentProcessId            : 1580
+PeakPageFileUsage          : 21976
+PeakVirtualSize            : 171053056
+PeakWorkingSetSize         : 41452
+PrivatePageCount           : 11530240
+ProcessId                  : 5432
+QuotaNonPagedPoolUsage     : 29
+QuotaPagedPoolUsage        : 183
+QuotaPeakNonPagedPoolUsage : 148
+QuotaPeakPagedPoolUsage    : 185
+ReadOperationCount         : 14576
+ReadTransferCount          : 1371332836
+SessionId                  : 0
+ThreadCount                : 16
+VirtualSize                : 156045312
+WindowsVersion             : 10.0.22000
+WriteOperationCount        : 188
+WriteTransferCount         : 2649694
+PSComputerName             : 
+CimClass                   : root/cimv2:Win32_Process
+CimInstanceProperties      : {Caption, Description, InstallDate, Name…}
+CimSystemProperties        : Microsoft.Management.Infrastructure.CimSystemProperties
+
+ProcessName                : ksde.exe
+Handles                    : 812
+VM                         : 229888000
+WS                         : 16125952
+Path                       : 
+Caption                    : ksde.exe
+Description                : ksde.exe
+InstallDate                : 
+Name                       : ksde.exe
+Status                     : 
+CreationClassName          : Win32_Process
+CreationDate               : 4/27/2022 8:34:46 AM
+CSCreationClassName        : Win32_ComputerSystem
+CSName                     : WIN11-2
+ExecutionState             : 
+Handle                     : 2868
+KernelModeTime             : 66718750
+OSCreationClassName        : Win32_OperatingSystem
+OSName                     : Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk1\Partition4
+Priority                   : 8
+TerminationDate            : 
+UserModeTime               : 53750000
+WorkingSetSize             : 16125952
+CommandLine                : 
+ExecutablePath             : 
+HandleCount                : 812
+MaximumWorkingSetSize      : 
+MinimumWorkingSetSize      : 
+OtherOperationCount        : 72986
+OtherTransferCount         : 2887767
+PageFaults                 : 132915
+PageFileUsage              : 32420
+ParentProcessId            : 1580
+PeakPageFileUsage          : 35180
+PeakVirtualSize            : 246943744
+PeakWorkingSetSize         : 50864
+PrivatePageCount           : 33198080
+ProcessId                  : 2868
+QuotaNonPagedPoolUsage     : 4226
+QuotaPagedPoolUsage        : 259
+QuotaPeakNonPagedPoolUsage : 4632
+QuotaPeakPagedPoolUsage    : 278
+ReadOperationCount         : 5634
+ReadTransferCount          : 6398276
+SessionId                  : 0
+ThreadCount                : 33
+VirtualSize                : 229888000
+WindowsVersion             : 10.0.22000
+WriteOperationCount        : 21304
+WriteTransferCount         : 13608052
+PSComputerName             : 
+CimClass                   : root/cimv2:Win32_Process
+CimInstanceProperties      : {Caption, Description, InstallDate, Name…}
+CimSystemProperties        : Microsoft.Management.Infrastructure.CimSystemProperties
+
+ProcessName                : ksdeui.exe
+Handles                    : 373
+VM                         : 143912960
+WS                         : 4820992
+Path                       : C:\Program Files (x86)\Kaspersky Lab\Kaspersky VPN 5.3\ksdeui.exe
+Caption                    : ksdeui.exe
+Description                : ksdeui.exe
+InstallDate                : 
+Name                       : ksdeui.exe
+Status                     : 
+CreationClassName          : Win32_Process
+CreationDate               : 4/27/2022 8:34:54 AM
+CSCreationClassName        : Win32_ComputerSystem
+CSName                     : WIN11-2
+ExecutionState             : 
+Handle                     : 12148
+KernelModeTime             : 13125000
+OSCreationClassName        : Win32_OperatingSystem
+OSName                     : Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk1\Partition4
+Priority                   : 8
+TerminationDate            : 
+UserModeTime               : 11250000
+WorkingSetSize             : 4820992
+CommandLine                : "C:\Program Files (x86)\Kaspersky Lab\Kaspersky VPN 5.3\ksdeui.exe" -hidden
+ExecutablePath             : C:\Program Files (x86)\Kaspersky Lab\Kaspersky VPN 5.3\ksdeui.exe
+HandleCount                : 373
+MaximumWorkingSetSize      : 1380
+MinimumWorkingSetSize      : 200
+OtherOperationCount        : 906
+OtherTransferCount         : 3426
+PageFaults                 : 19384
+PageFileUsage              : 8920
+ParentProcessId            : 2868
+PeakPageFileUsage          : 9264
+PeakVirtualSize            : 150032384
+PeakWorkingSetSize         : 21660
+PrivatePageCount           : 9134080
+ProcessId                  : 12148
+QuotaNonPagedPoolUsage     : 20
+QuotaPagedPoolUsage        : 199
+QuotaPeakNonPagedPoolUsage : 22
+QuotaPeakPagedPoolUsage    : 201
+ReadOperationCount         : 11
+ReadTransferCount          : 172440
+SessionId                  : 1
+ThreadCount                : 6
+VirtualSize                : 143912960
+WindowsVersion             : 10.0.22000
+WriteOperationCount        : 0
+WriteTransferCount         : 0
+PSComputerName             : 
+CimClass                   : root/cimv2:Win32_Process
+CimInstanceProperties      : {Caption, Description, InstallDate, Name…}
+CimSystemProperties        : Microsoft.Management.Infrastructure.CimSystemProperties
+
+
+#############################################################
+# Group process names and report memory
+# get-process is gps
+get-process | Group-Object name, {[int]($_.WorkingSet / 1MB)} -NoElement | sort name
+gps | Group-Object {[int]($_.WorkingSet / 1MB)},name -NoElement | sort name
+
+#############################################################
+# Get cmdlets by using a parameter name and type
+#  
+Get-Command -ParameterName *Auth* -ParameterType AuthenticationMechanism | format-table Name, Definition
+
+#############################################################
+# Get a GUI interface for any PowerShell cmdlet
+Show-Command Get-Service
 
 ############################################################# 
 # Get event logs changed during 4 hours
@@ -333,6 +582,7 @@ Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object -expand CimInst
 Get-Command -Verb Format -Module Microsoft.PowerShell.Utility
 Get-Command -Verb Format | Format-Table -Wrap -AutoSize CommandType, Name, Source, @{n='Definition';e={$_.Definition -replace("`n","") }}
 
+
 #############################################################
 # Install/Unistall module
 # 
@@ -343,10 +593,17 @@ Uninstall-Module -Name PSDesiredStateConfiguration
 #############################################################
 # Find module
 # 
+Find-Module Azure*
 Get-InstalledModule PSDesiredStateConfiguration
 Get-InstalledModule PSDesiredStateConfiguration | select *
 $env:PSModulePath -split ';' | Get-ChildItem -ea 0 | where {$_.FullName -like '*PSDesiredStateConfiguration*'} | select -first 2 FullName, Attributes, CreationTime, LastAccessTime, LastWriteTime, Mode, LinkTarget
 Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recurse
+
+
+#########################################################
+# Get the time and date as a string of numbers by using PowerShell
+Get-Date -format "MM_dd_yyyy-HH_MM_ss"
+04_28_2022-01_04_11
 
 
 #############################################################
@@ -463,3 +720,352 @@ Set-ExecutionPolicy RemoteSigned
 # You can bypass this policy for a single file by adding -ExecutionPolicy Bypass when running PowerShell
 powershell -ExecutionPolicy Bypass -File script.ps1
 
+
+################################################################
+# Provider Drives
+#
+
+PS C:\home\src\Scripts>  Get-PSDrive
+
+Name           Used (GB)     Free (GB) Provider      Root                                                                                                                                                                                 CurrentLocation
+----           ---------     --------- --------      ----                                                                                                                                                                                 --------------- 
+Alias                                  Alias
+C                 946.72       8366.76 FileSystem    C:\                                                                                                                                                                                 home\src\Scripts 
+Cert                                   Certificate   \
+D                 198.23       2567.74 FileSystem    D:\
+E                 286.54       9027.45 FileSystem    E:\
+Env                                    Environment
+Function                               Function
+HKCU                                   Registry      HKEY_CURRENT_USER
+HKLM                                   Registry      HKEY_LOCAL_MACHINE
+Temp              946.72       8366.76 FileSystem    C:\Users\alexe\AppData\Local\Temp\
+Variable                               Variable
+W                1664.76        165.06 FileSystem    \\WDMyCloudEX4\v1-media
+WSMan                                  WSMan
+X                1736.47         93.35 FileSystem    \\WDMyCloudEX4\v2-media
+Y                1056.32        773.50 FileSystem    \\WDMyCloudEX4\v3-data
+Z                1769.24         60.58 FileSystem    \\WDMyCloudEX4\v4-data
+
+
+#################################################################
+# Registry Value Entries
+#
+
+$RegistryPath = 'HKCU:\Software\CommunityBlog\Scripts'
+$Name         = 'Version'
+$Value        = '42'
+
+PS C:\home\src\Scripts> New-ItemProperty -Path $RegistryPath -Name $Name -Value $Value -PropertyType DWORD -Force 
+New-ItemProperty: Cannot find path 'HKCU:\Software\CommunityBlog\Scripts' because it does not exist.
+
+
+#################################################################
+# Registry Value Entries
+#
+$RegistryPath = 'HKCU:\Software\CommunityBlog\Scripts'
+$Name         = 'Version'
+$Value        = '42'
+# Create the key if it does not exist
+If (-NOT (Test-Path $RegistryPath)) {
+  New-Item -Path $RegistryPath -Force | Out-Null
+}  
+# Now set the value
+New-ItemProperty -Path $RegistryPath -Name $Name -Value $Value -PropertyType DWORD -Force
+
+
+##############################################################
+# NIC
+#############################################################
+
+#####################
+# How to rename Nic
+
+PS C:\home\src\Scripts> Get-NetAdapter
+
+Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
+----                      --------------------                    ------- ------       ----------             ---------
+Ethernet Kaspersky        Kaspersky Security Data Escort Adapter       23 Disconnected 00-FF-F1-45-1B-15       100 Mbps
+vEthernet (Default Switc… Hyper-V Virtual Ethernet Adapter             58 Up           00-15-5D-23-EC-74        10 Gbps
+Wi-Fi                     TP-Link Wireless MU-MIMO USB Adapter         18 Up           98-48-27-E3-58-63       585 Mbps
+Bluetooth Network Connec… Bluetooth Device (Personal Area Networ…      12 Disconnected 00-1A-7D-B2-10-86         3 Mbps
+Ethernet                  Intel(R) Ethernet Connection (5) I219-…       8 Up           A4-BB-6D-D6-F4-75         1 Gbps
+VirtualBox Host-Only Net… VirtualBox Host-Only Ethernet Adapter         4 Up           0A-00-27-00-00-04         1 Gbps
+
+# Admin required
+ Get-NetAdapter -InterfaceIndex 16 | Rename-NetAdapter -NewName 'Sales iSCSI VLAN' Get-NetAdapter -InterfaceIndex 16 | Rename-NetAdapter -NewName 'Sales iSCSI VLAN'
+
+
+
+################################################
+# How to send output to a file
+
+Get-Process -Name p* | Set-Content -Path C:\home\tmp\Get-Process.txt
+Get-Content -Path C:\home\tmp\Get-Process.txt
+<#
+System.Diagnostics.Process (plugins_nms)
+System.Diagnostics.Process (powershell)
+System.Diagnostics.Process (pwsh)
+#>
+
+############################################
+# Using Out-String
+# You can improve the output from Set-Content by using Out-String, like this
+Get-Process -Name p* | Out-String | Set-Content C:\home\tmp\Get-Process.txt
+Get-Content -Path C:\home\tmp\Get-Process.txt
+<#
+ NPM(K)    PM(M)      WS(M)     CPU(s)      Id  SI ProcessName
+ ------    -----      -----     ------      --  -- -----------
+     12     2.68       9.50       0.75   17880   1 plugins_nms
+     30    65.43      78.31       0.73   16208   1 powershell
+    111   125.08     177.77      11.59   18120   1 pwsh
+#>
+
+############################################
+# Using Out-File 
+# The Out-File cmdlet gives you control over the output that PowerShell composes and sends to the file.
+Get-Process -Name p* | Out-File -Path C:\home\tmp\Get-Process.txt
+Get-Content -Path C:\home\tmp\Get-Process.txt
+
+# The Redirection Operators
+# There are two PowerShell operators you can use to redirect output: > and >>. 
+# The > operator is equivalent to Out-File while >> is equivalent to Out-File -Append. 
+
+# Using .NET Classes
+
+# BinaryWriter – Writes primitive types in binary to a stream.
+# StreamWriter – writes characters to a stream in a particular encoding.
+# StringWriter – writes information to a string. With this class, Powershell stores the string information in a StringBuilder object.
+# Of these three, the class you are most likely to use to send output to a file is the StreamWriter class. Like this:
+# Get the directories in C:\
+$Dirs = Get-ChildItem -Path C:\ -Directory
+# Open a stream writer
+$File   = 'C:\Foo\Dirs.txt'
+$Stream = [System.IO.StreamWriter]::new($File)
+# Write the folder names for these folders to the file
+foreach($Dir in $Dirs) {
+  $Stream.WriteLine($Dir.FullName)
+}
+# Close the stream
+$Stream.Close()
+
+# You can use Get-Content to view the generated content, like this:
+
+PS> Get-Content -Path c:\Foo\Dirs.txt
+C:\AUDIT
+C:\Boot
+C:\Foo
+C:\inetpub
+C:\jea
+C:\NVIDIA
+C:\PerfLogs
+C:\Program Files
+C:\Program Files (x86)
+C:\PSDailyBuild
+C:\ReskitApp
+C:\Temp
+C:\Users
+C:\WINDOWS
+
+
+
+###################################
+## New-TemporaryFile Cmdlet
+
+$File = New-TemporaryFile      # 	Create
+Remove-Item -path $File -force # 	Remove
+
+"$($Env:temp)\tmp$([convert]::tostring((get-random 65535),16).padleft(4,'0')).tmp"
+
+Function New-TemporaryFolder {
+    # Make a new folder based upon a TempFileName
+    $T="$($Env:temp)\tmp$([convert]::tostring((get-random 65535),16).padleft(4,'0')).tmp"
+    New-Item -ItemType Directory -Path $T
+}
+
+
+
+###################################
+## Is the User an Administrator?
+
+$Me = whoami.exe
+$Admins = Get-LocalGroupMember -Name Administrators | Select-Object -ExpandProperty name
+if ($Admins -Contains $Me) { "$Me is a local administrator"}  else { "$Me is NOT a local administrator"}
+
+
+###################################
+## String to Upper case
+$Prompt = 'Enter Your Name In ALL Upper Case'
+$Prompt
+$Prompt.ToUpper()
+
+#####################################
+# Read File
+
+$ColorsText = @'
+violet
+indigo
+blue
+green
+yellow
+orange
+red
+'@
+
+$FileName="C:\home\tmp\ColorsFoo.txt"
+$ColorsText | Out-File -Path $FileName
+Get-ChildItem -Path $FileName
+
+# Once you have created the file, you can get the contents and display it, like this:
+$ArrayData = Get-Content -Path $FileName
+$ArrayData
+
+$FileName="C:\home\tmp\ColorsFoo.txt"
+$ArrayData = Get-Content -Path $FileName
+$Length = $ArrayData.count
+"There are $Length lines in the file"
+$ArrayData
+
+# Printing a text file bottom up
+$Line=1
+1..$Length | ForEach-Object {$ArrayData[-$Line]; $Line++}
+
+
+############################################################
+## Skip the beginning and ending of a file by using 
+#
+$a= Get-Content "C:\home\tmp\ColorsFoo.txt"
+$array = @()
+for ($i = 0; $i -lt $a.Count; $i++) {
+    If ($a[$i] -cmatch "indigo" ) { $start=$i }
+    If ($a[$i] -cmatch "orange")  { $end=$i }
+}
+$a[$start .. $end]
+
+
+##############################################################
+# Use a regular expression pattern to replace nonalphabetic characters with dots
+$string = "abcdefg12345HIJKLMNOP!@#$%qrs)(*&^TUVWXyz"
+$pattern = "[^a-zA-Z]"
+$string -replace $pattern, "."
+
+
+################################################
+# gps
+
+gps | group name | ? count -gt 1 | ft
+
+
+
+################################################
+# display a percentage that has two decimal places
+'{0:p2}' -f (1/10)
+
+################################################
+# Remove trailing space from a string 
+$Data="           Look at all of this wasted space on my screen. "
+$Data
+$Data.trim()
+$Data.trimstart()
+$Data.trimend()
+
+################################################
+# Set the color of the progress bar with PowerShell
+$Host.PrivateData.ProgressBackgroundColor="Green" 
+$Host.PrivateData.ProgressForegroundColor="Black"
+
+################################################
+# List all available CIM classes by using 
+Get-CimClass Win32*Disk*
+
+################################################
+# escape characters in a string using regular expressions
+PS C:\home\src\Scripts> [regex]::escape('something. in here (needs) escaping')
+something\.\ in\ here\ \(needs\)\ escaping
+
+################################################
+# How to detect phone numbers using regular expressions
+$phoneornot = @('780-123-4567', '780 321 6548', 'notme', 'this is 2 num')
+$phones = [regex]::matches(($phoneornot -replace '\D', ''),'\b(\d{10})\b')
+$phones.value
+
+###############################################
+# list all possible colors in the console
+[System.Enum]::getvalues([System.ConsoleColor])
+
+##################################
+# Find all devices connected to a computer
+Get-PnpDevice -PresentOnly
+
+####################################################
+#  devices attached to the system 
+# https://devblogs.microsoft.com/scripting/passing-through-devices-to-hyper-v-vms-by-using-discrete-device-assignment/
+
+Get-PnpDevice -PresentOnly | Sort-Object -Property Class
+
+
+Status     Class           FriendlyName                                                                     InstanceId
+------     -----           ------------                                                                     ----------
+OK         System          Microsoft Hyper-V Virtual Machine Bus Provider                                   ROOT\VMBUS\0000
+OK         System          Microsoft Hypervisor Service                                                     ROOT\HVSERVICE…
+OK         Net             Hyper-V Virtual Switch Extension Adapter                                         ROOT\VMS_VSMP\…
+OK         Net             Hyper-V Virtual Switch Extension Adapter #2                                      ROOT\VMS_VSMP\…
+OK         Net             Hyper-V Virtual Switch Extension Adapter #3                                      ROOT\VMS_VSMP\…
+OK         System          Microsoft Hyper-V Virtualization Infrastructure Driver                           ROOT\VID\0000
+OK         System          Microsoft Hyper-V PCI Server                                                     ROOT\VPCIVSP\0…
+OK         System          Microsoft Hyper-V Virtual Disk Server                                            ROOT\STORVSP\0…
+
+# Mount
+# Now we need to dismount the device from the host by using the Dismount-VmHostAssignableDevice cmdlet. 
+# To specify a location of the device, we need to get a specific property that is not presented in the device object by using Get-PnpDeviceProperty.
+locationPath = (Get-PnpDeviceProperty -KeyName DEVPKEY_Device_LocationPaths -InstanceId $dev.InstanceId).Data[0] Dismount-VmHostAssignableDevice -LocationPath $locationPath -Force –Verbose
+
+Now if you refresh the device object, you can see that something changed: Device is described as “Dismounted”:
+(Get-PnpDevice -PresentOnly).Where{ $_.InstanceId -like $instanceId }
+
+
+# The last step is to attach an assignable device to the VM by using Add-VMAssignableDevice like this:
+Add-VMAssignableDevice -VM $vm -LocationPath $locationPath –Verbose
+
+# Dynamic memory is allowed, but minimum and startup memory have to be equal. Let’s fix it, and finally attach our device.
+Set-VM -VM $vm -DynamicMemory -MemoryMinimumBytes 1024MB -MemoryMaximumBytes 4096MB -MemoryStartupBytes 1024MB -AutomaticStopAction TurnOff 
+Add-VMAssignableDevice -VM $vm -LocationPath $locationPath –Verbose
+
+#####
+# Full code
+$vmName = 'VMDDA0'
+$instanceId = '*VEN_168C&DEV_002B*'
+$ErrorActionPreference = 'Stop'
+$vm = Get-VM -Name $vmName
+$dev = (Get-PnpDevice -PresentOnly).Where{ $_.InstanceId -like $instanceId } 
+if (@($dev).Count -eq 1) {
+    Disable-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false
+    $locationPath = (Get-PnpDeviceProperty -KeyName DEVPKEY_Device_LocationPaths -InstanceId $dev.InstanceId).Data[0]
+    Dismount-VmHostAssignableDevice -LocationPath $locationPath -Force -Verbose
+    Set-VM -VM $vm -DynamicMemory -MemoryMinimumBytes 1024MB -MemoryMaximumBytes 4096MB -MemoryStartupBytes 1024MB -AutomaticStopAction TurnOff
+# If you want to play with GPUs: 
+# Set-VM -VM $vm -StaticMemory -MemoryStartupBytes 4096MB -AutomaticStopAction TurnOff
+# Set-VM -VM $vm -GuestControlledCacheTypes $true -LowMemoryMappedIoSpace 2048MB -HighMemoryMappedIoSpace 4096MB -Verbose
+    Add-VMAssignableDevice -VM $vm -LocationPath $locationPath -Verbose
+} else {
+    $dev | Sort-Object -Property Class | Format-Table -AutoSize Write-Error -Message ('Number of devices: {0}' -f @($dev).Count)
+}
+
+# Restore configuration
+# Remove all devices from a single VM 
+Remove-VMAssignableDevice -VMName VMDDA0 -Verbose
+# Return all to host 
+Get-VMHostAssignableDevice | Mount-VmHostAssignableDevice -Verbose
+# Enable it in devmgmt.msc 
+(Get-PnpDevice -PresentOnly).Where{ $_.InstanceId -match 'VEN_168C&DEV_002B' } | Enable-PnpDevice -Confirm:$false -Verbose
+
+
+##########################################################################
+# Changing Drive Letter
+$Drive = Get-CimInstance -ClassName Win32_Volume -Filter "DriveLetter = 'M:'"
+$Drive | Set-CimInstance -Property @{DriveLetter ='X:'}
+
+
+#############################################################################
+# Service Owner
+ Get-Service workstation | select  Username,Starttype,BinaryPathName
+ Get-Service * | ft DisplayName,Username,Status,Starttype,BinaryPathName,Description

@@ -1,0 +1,238 @@
+###############################################################
+# Common Information Model (CIM)
+###############################################################
+
+#############################################################
+# Use the Common Information Model (CIM) cmdlets to pull a list of active sessions to remote workstations.
+# How can I find active CIM sessions on my workstation?
+Get-CimSession
+
+
+##################################################################
+# Finding the CIM Class
+Get-CimClass -Namespace root\cimv2 
+
+##################################################################
+# To Enumerate the Win32_Services WMI class and get all the available services using PowerShell 
+Get-CimInstance -Namespace root\CIMV2 -ClassName win32_service
+Get-CimInstance -Query 'Select * from Win32_Service'
+
+
+
+##################################################################
+# Creating WMI Query and  Registering The Query
+# https://docs.microsoft.com/en-us/windows/win32/wmisdk/wql-sql-for-wmi
+# https://adamtheautomator.com/your-goto-guide-for-working-with-windows-wmi-events-and-powershell/
+# Select * from <WMI System Class> within <Number of Seconds> where TargetInstance ISA <WMI Class name>
+# Let apply the same to Win32_Serivce. Start by creating a PowerShell variable, in our case, you construct the query as follows:
+
+$query="Select * from CIM_InstModification within 10 where TargetInstance ISA 'Win32_Service'"
+# The Register-CimIndicationEvent is used to subscribe to events generated from the system. And in our case, it subscribes to events generated from the $query.
+
+Register-CimIndicationEvent -Namespace 'ROOT\CIMv2' -Query $query -SourceIdentifier 'WindowsServices' -MessageData 'Service Status Change'
+# To confirm the successful registration, type the following cmdlet Get-EventSubscriber, the output looks like the following
+
+Get-EventSubscriber
+# SubscriptionId   : 1
+# SourceObject     : Microsoft.Management.Infrastructure.CimCmdlets.CimIndicationWatcher
+# EventName        : CimIndicationArrived
+# SourceIdentifier : **WindowsServices**
+# Action           :
+# HandlerDelegate  :
+# SupportEvent     : False
+# ForwardEvent     : False
+
+# Reading the events
+# Try Windows Update service (wuauserv), run the following cmdlet to see the status of the wuauserv service.
+Get-Service wuauserv
+# Start-Service wuauserv
+Stop-Service wuauserv
+
+# To see the newly created events, type Get-Event Look at the MessageData, it’s the same message used in the Register-CimIndicationEvent.
+<#
+$EventVariable=Get-Event
+$EventVariable
+ComputerName     : 
+RunspaceId       : 60089379-21ab-4c8a-b6d3-c7a6c360f5f9
+EventIdentifier  : 62991
+Sender           : Microsoft.Management.Infrastructure.CimCmdlets.CimIndicationWatcher
+SourceEventArgs  : Microsoft.Management.Infrastructure.CimCmdlets.CimIndicationEventInstanceEventArgs
+SourceArgs       : {Microsoft.Management.Infrastructure.CimCmdlets.CimIndicationWatcher, }
+SourceIdentifier : WindowsServices
+TimeGenerated    : 4/27/2022 7:31:50 PM
+MessageData      : Service Status Change
+
+ComputerName     : 
+RunspaceId       : 60089379-21ab-4c8a-b6d3-c7a6c360f5f9
+EventIdentifier  : 63148
+Sender           : Microsoft.Management.Infrastructure.CimCmdlets.CimIndicationWatcher
+SourceEventArgs  : Microsoft.Management.Infrastructure.CimCmdlets.CimIndicationEventInstanceEventArgs
+SourceArgs       : {Microsoft.Management.Infrastructure.CimCmdlets.CimIndicationWatcher, }
+SourceIdentifier : WindowsServices
+TimeGenerated    : 4/27/2022 7:32:42 PM
+MessageData      : Service Status Change
+#>
+
+$EventVariable.SourceEventArgs.NewEvent.PreviousInstance
+# ProcessId Name     StartMode State   Status ExitCode
+# --------- ----     --------- -----   ------ --------
+# 0         wuauserv Manual    Stopped OK     0
+# 0         AppXSvc  Manual    Stopped OK     0
+
+# This WMI monitoring remains active as long as the PowerShell console. 
+# It creates such a temporary job which runs in the background to monitor the services class. You can also end this process by rebooting the computer. Hope you learned something new today.
+
+###################################################################
+# CIM Example
+#  https://adamtheautomator.com/your-goto-guide-for-working-with-windows-wmi-events-and-powershell/
+
+
+# Creating the Event Filter
+
+$FilterQuery="Select * from __InstanceModificationEvent within 10 where TargetInstance ISA 'Win32_Service'"
+$CIMEventFilterProperties = @{
+	## The name of the event filter. This can be anything related.
+	Name="MyServiceFilter"
+	## The namespace for the targetted class, for example, the targetted class for
+	## **Win32_Service** is Root/CIMv2
+	EventNameSpace="Root/CIMV2"
+	## The query language, usually **WQL**.
+	QueryLanguage="WQL"
+	## The query to use.
+	Query=$FilterQuery
+}
+
+# Use Evlevated PowerShell 
+$CIMFilterInstance=New-CimInstance -ClassName __EventFilter -Namespace "Root/SubScription" -Property $CIMEventFilterProperties
+
+# Now, run Get-CimInstance to verify the new CIM instance of __EventFilter has been created.
+
+Get-CimInstance -Namespace root/subscription -ClassName __EventFilter
+
+<#
+CreatorSID     : {1, 5, 0, 0...}
+EventAccess    :
+EventNamespace : Root/CIMV2
+Name           : MyServiceFilter
+Query          : Select * from __InstanceModificationEvent within 10 where TargetInstance ISA 'Win32_Service'
+QueryLanguage  : WQL
+PSComputerName :
+
+CreatorSID     : {1, 2, 0, 0...}
+EventAccess    :
+EventNamespace : root\cimv2
+Name           : SCM Event Log Filter
+Query          : select * from MSFT_SCMEventLogEvent
+QueryLanguage  : WQL
+PSComputerName :
+
+#>
+
+# CIM Creating the Consumer
+
+$CIMCOnsumerProperties = @{
+	## The name that the script will register in the **Root/Subscription** namespace
+	Name="MyServiceConsumer"
+	## The file path and name which the log writes to when the event is triggered.
+	FileName="C:\home\tmp\MyCIMMonitoring.txt"
+	## The text to write in the log. You can add a variable by using the
+	## %TargetInstance.WMIProperty%. In this example, the **Caption** and the **State
+	##** are used.
+	Text = "The Service %TargetInstance.Caption% has been Changed: %TargetInstance.State%"
+}
+
+$CIMEventConsumer=New-CimInstance -ClassName LogFileEventConsumer -Namespace 'ROOT/subscription' -Property $CIMCOnsumerProperties
+
+Get-CimInstance -Namespace Root/Subscription -ClassName LogFileEventConsumer | Remove-CimInstance
+
+# Each consumer class has its own parameters, so check the CimClassProperties for more details about each class e.g. (Get-CimClass -ClassName __NTEventLogEventConsumer).CimClassProperties.
+# Once you’ve created the consumer, again, check for it’s existence with Get-Ciminstance.
+
+Get-CimInstance -Namespace Root/Subscription -ClassName LogFileEventConsumer
+<#
+CreatorSID       : {1, 5, 0, 0...}
+MachineName      :
+MaximumQueueSize :
+Filename         : C:\\home\\tmp\\MyCIMMonitoring.txt
+IsUnicode        :
+MaximumFileSize  : 65535
+Name             : MyServiceConsumer
+Text             : The Service %TargetInstance.Caption% has been Changed: %TargetInstance.State%
+PSComputerName   :
+#>
+
+# Testing the Subscription
+# The only thing you need to do now is change the BITS service status to see if PowerShell writes an entry to the log file at "C:\home\tmp\MyCIMMonitoring.txt"
+
+
+Get-Content -Path  C:\\home\\tmp\\MyCIMMonitoring.txt
+
+
+##########################
+## Examples of other consumers
+######################
+## NTEventLogEventConsumer
+######################
+## $Template = @(
+##	'The Service %TargetInstance.Caption% has been Changed: %TargetInstance.State%'
+##)
+##$CIMCOnsumerProperties=@{
+## ## Name of the Consumer
+##	Name="MyEventLogConsumer"
+## ## The Event ID to use
+##	EventID =[UInt32] 7040
+##  EventType can hold one of the following values
+##    ## - **0**: Successful Event
+##    ## - **1**: Error Event
+##    ## - **2**: Warning Event
+##    ## - **4**: Information Event
+##    ## - **8**: Success Audit Event
+##    ## - **16**: Failure Audit Event
+##  EventType=[UInt32] 1 #Information
+## ## The name of the Event Source.
+##  SourceName="Service Control Manager"
+##  Category=[UInt16] 0
+##  ## The number of line of the **InsertionStringTemplates**
+##  NumberOfInsertionStrings =[UInt32] $Template.Length
+##  ## The message text to show in the Windows EventLog record.
+##  InsertionStringTemplates = $Template
+##}
+## $CIMEventConsumer=New-CimInstance -ClassName NTEventLogEventConsumer -Namespace 'ROOT/subscription' -Property $CIMCOnsumerProperties
+
+######################
+## CommandLineEventConsumer
+######################
+## $CIMCOnsumerProperties=@{
+##  ## A unique name for the consumer.
+##	Name="MyStartAppConsumer"
+##  ## The path and the parameter for the application intended to start when the event is triggered.
+##	CommandLineTemplate ='pwsh.exe c:\\myscript.ps1 -ServiceName %TargetInstance.name% -NewState %TargetInstance.State%'
+##  ## (Optional) Terminate the application after a set number of seconds. This is helpful to protect your server resources.
+##  ## KillTimeout = 5 
+##}
+##$CIMEventConsumer=New-CimInstance -ClassName CommandLineEventConsumer  -Namespace 'ROOT/subscription' -Property $CIMCOnsumerProperties
+
+######################
+## SMTPEventConsumer
+######################
+## The Email message body
+## $Message= 'The File Server changed %Targetinstance.Name% , %TargetInstance.Status%'
+
+## $CIMCOnsumerProperties=@{
+##	Name="MyService-EmailConsumer"
+##	## The email address of the sender.
+##	FromLine ='Noreply@mydomain.com'
+##	## the recipient’s email address.
+##	ToLine = 'MyEmail@MyCompany.com'
+##	## SMTP Server to relay the message to.
+##	SMTPServer = 'MySMTPServer.MyDomain.Com'
+##	## The message subject
+##	Subject = 'File Server Changed…'
+##	Message= $Message
+##}
+##$CIMEventConsumer=New-CimInstance -ClassName SMTPEventConsumer   -Namespace 'ROOT/subscription' -Property $CIMCOnsumerProperties
+
+
+
+
+

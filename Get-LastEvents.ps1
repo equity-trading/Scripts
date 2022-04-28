@@ -20,13 +20,13 @@ function Out-Events {
     }
 }
 
-functon Out-Table {
+Function Out-Table {
 }
 
-functon Out-Record {
+Function Out-Record {
 }
 
-functon Run-Cmd {
+Function Run-Cmd {
     param([Script] $Cmd)
 #    $Cmd="Get-Service -Name '$pattern*' "
     "Cmd: {0}" -f $Cmd

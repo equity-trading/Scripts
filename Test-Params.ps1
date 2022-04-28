@@ -194,6 +194,7 @@ Function Get-Parameter {
        }
    } #process
 } #end function  
+
 function Get-ScriptDirectory {
   $Invocation = (Get-Variable MyInvocation -Scope 1).Value
   Split-Path $Invocation.MyCommand.Path
