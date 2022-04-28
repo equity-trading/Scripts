@@ -151,6 +151,35 @@ Format-Table -GroupBy Computername -property LogFileName,NumberOfRecords,*Size*,
 #or use the PSDrive
 (gdr c).Free/1gb
 
+
+##################################################################
+# Out String 
+# Use the Width parameter to prevent truncation.
+
+PS> @{TestKey = ('x' * 200)} | Out-String
+Name                           Value
+----                           -----
+TestKey                        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...
+
+PS> @{TestKey = ('x' * 200)} | Out-String -Width 250
+Name                           Value
+----                           -----
+TestKey                        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+##################################################################
+# Out-file
+# Set file output width for entire scope
+ $PSDefaultParameterValues['out-file:width'] = 2000
+
+####################################################################
+# Send output to a file in ASCII format
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/out-file?view=powershell-7.2
+$Procs = Get-Process
+Out-File -FilePath .\Process.txt -InputObject $Procs -Encoding ASCII -Width 50
+
+
 #############################################################
 # Get a date string in the format year-month-day-hour-min-second. The abbreviations in the format string are case-sensitive.
 #
@@ -540,8 +569,6 @@ ForEach ( $Usr in ([ADSI] "WinNT://$env:computername") | where { $_.psbase.schem
 $Prop=([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties; 
 " ** {0,31} : {1} **" -f "User", $Prop.Name.Value; 
 $Prop.Keys | % { $k=$_;$v=$Prop.$k.value;$t=$v.GetType();switch($t) { int {$v=$v.ToString()}; string { if ($k -eq "Name") {$k="-";} }; default {$v="tbd"}}; if($k -ne "-") { "{0,35} : {1}" -f "$k($t)",$v }  }
-
-
 
 
 #############################################################
