@@ -7,422 +7,296 @@
 # You’ll have to try them out for yourself and adjust as necessary. You’ll need to add things like parameters and error handling. It may also be easier to break some of these into several steps when used in a script.
 
 #############################################################
-# Get the scriptblock content of a loaded function. Substitute the name of a function.
+# Enable execution of scripts
+# Error: "execution of scripts is disabled on this system."
 #
-(get-item Function:\prompt).scriptblock
+# https://stackoverflow.com/questions/4037939/powershell-says-execution-of-scripts-is-disabled-on-this-system
 
-#############################################################
-# Copy a function to a remote computer using a PSSession.
-#
-$f = $(get-item function:\Get-Foo).scriptblock
-Invoke-Command { New-Item -Name Get-Foo -Path Function: -Value $($using:f)} -session $s
+# As an Administrator, you can set the execution policy by typing this into your PowerShell window:
+Set-ExecutionPolicy RemoteSigned
+# You can bypass this policy for a single file by adding -ExecutionPolicy Bypass when running PowerShell
+powershell -ExecutionPolicy Bypass -File script.ps1
+
+PS C:\Users\alexe> get-executionpolicy
+RemoteSigned
+
+###############################
+# Direct Execution
+# The legacy method of direct execution is still supported:
+
+Invoke-WebRequest "aka.ms/Get-NetView" -OutFile "Get-NetView.ps1"
+.\Get-NetView.ps1 -OutputDir .\
+###################################
+# If blocked by execution policy:
+Powershell.exe -ExecutionPolicy Bypass -File  .\Get-NetView.ps1 -OutputDir .\
+
+################################################################
+# wget in powershell to download via http
+(New-Object System.Net.WebClient).DownloadFile("http://10. 10.10.10/nc.exe","nc.exe")
+
+
+########################################
+########################################
+#######                         ########
+#######      Services           ########
+#######                         ########
+########################################
+########################################
+
+#############################################################################
+# Running Services
+Get-Service      | Where-Object {$_.Status -eq "Running"}
+Get-Service -ea 0| Where-Object Status -eq "Running"
+Get-Service      | Format-Table -view ansi
+[wmi]"root\cimv2:win32_service.Name='spooler'"
+
+############################################################################
+# Service Report
+Get-Service Bits,Winrm | Convertto-Markdown -title "Service Check" -precontent "## $($env:computername)" -postcontent "_report $(Get-Date)_"
+Get-Service Bits,Winrm | ConvertTo-Markdown -title "Service Check" -PreContent "## $($env:computername)" -postcontent "_Confidential_" -AsList
+
+########################################################
+# Service Automation
+
+$SelectEngine={Get-Service}
+# $SelectEngine={Get-CimInstance -Class Win32_Service} 
+
+$SelectCmd={ $Global:Cnt=0; $Global:MyServices=@( & $SelectEngine | Sort-object name | select @{n='No';e={($Global:Cnt++)}},*) }
+& $SelectCmd
+
+$Global:Top=40
+$Names=@();  $ExclNames=@();$Pids=@() ;  $ExclPids=@(); 
+$States=@('Stopped','Running','Stopping','Starting'); $ExclStates=@()
+$Starts=@('Manual','Auto'); ; $ExclStarts=@()
+
+$Global:CimCols=@( 'No','Name'
+,@{n='StartMode';e={'{0}{1}' -f $_.StartMode,$( if($_.DelayedAutoStart -eq 'True') {'/Delay'} )}}
+,'State',@{n='ServiceOwner';e={$_.StartName}}
+,'ProcessId','PathName'
+,@{n='ExitCode';e={'{0}{1}' -f  $(if($_.ExitCode){"$($_.ExitCode)"} ), $(if($_.ServiceSpecificExitCode){"$($_.ServiceSpecificExitCode)"})}}
+,'DisplayName','Description')
+
+$SetColsCmd={
+	$Cols=$('*')
+	$ServiceExclCols=@("ServiceName","ServiceType")
+	$ServiceExclCols+=@("CanShutdown","CanStop","CanPauseAndContinue")
+	$ServiceExclCols+=@("MachineName","Site","ServiceHandle","Container")
+	$ServiceExclCols+=@("ServicesDependedOn","RequiredServices","DependentServices")
+	$CimExclCols=@("*Properties","*Class","*ClassName")
+	$CimExclCols+=@("ExitCode","DesktopInteract","ErrorControl")
+	$CimExclCols+=@("InstallDate","Started","SystemName","AcceptPause","AcceptStop","ServiceSpecificExitCode","TagId","Started","CheckPoint","WaitHint","DelayedAutoStart","PSComputerName")
+	$ExclCols=$ServiceExclCols+$CimExclCols
+}
+
+& $SetColsCmd
+
+$SetCondScriptCmd={
+$CondArr=@( '1 -eq 1')+ 
+$( if( $Names        ) { @( '$_.Name  -match  "{0}" -or  $_.DispalyName -match  "{0}"'     -f $($Names       -join('|')) ) } else { @() } ) +
+$( if( $Pids         ) { @( '$_.ProcessId -match    "{0}"'                                 -f $($Pids        -join('|')) ) } else { @() } ) +
+$( if( $States       ) { @( '$_.State     -match    "{0}"'                                 -f $($States      -join('|')) ) } else { @() } ) +
+$( if( $Starts       ) { @( '$_.StartMode -match    "{0}"'                                 -f $($Starts      -join('|')) ) } else { @() } ) +
+$( if( $ExclNames    ) { @( '$_.Name -notmatch "{0}" -or $_.DispalyName -notmatch "{0}"'   -f $($ExclNames   -join('|')) ) } else { @() } ) +
+$( if( $ExclPids     ) { @( '$_.ProcessId -notmatch "{0}"'                                 -f $($ExclPids    -join('|')) ) } else { @() } ) +
+$( if( $ExclStates   ) { @( '$_.State     -notmatch "{0}"'                                 -f $($ExclStates  -join('|')) ) } else { @() } ) +
+$( if( $ExclStarts   ) { @( '$_.StartMode -notmatch "{0}"'                                 -f $($ExclStarts  -join('|')) ) } else { @() } ) ;
+$CondStr='({0})' -f $($CondArr -join(') -and ('))
+$Global:CondScript=$([ScriptBlock]::Create($CondStr))  }
+
+$SetCondScriptCmd={ $Global:CondScript={ $_.State -notmatch "Stopped|Running|Stopping|Starting" } }
+
+$PrintCmd={
+& $SetCondScriptCmd
+'$Global:CondScript is {0}' -f $Global:CondScript;
+$Global:Result=$Global:MyServices | Where-Object $Global:CondScript
+$Global:Result  | Select-Object -First $Global:Top -Property $Cols -ExcludeProperty $ExclCols | ft -auto * 
+'{0} of {1} $Global:MyServices object{2} filtered into $Global:Result' -f $Global:Result.Count,$Global:MyServices.Count,$( if($Global:Result.Count -ne 1){'s'} )
+'Top {0} of {1} $Global:Result object{2} printed into the above table' -f $Global:Top,$Global:Result.Count,$( if($Global:Top -ne 1){'s'} )
+
+'Helpers:'
+'$Global:Result[0] | fl * '
+'$Global:Result    | ft $Global:CimCols'
+'$Global:MyServices[{0}] | fl * ' -f $Global:Result[0].No
+'' }
+& $PrintCmd
+
+###############################################################################
+# Commands: sc tasklist
+sc queryex type=service state=all | findstr.exe /i 'SERVICE_NAME'
+tasklist /svc /fi "services eq StateRepository"
+
+#############################################################################
+# Win32_Service
+$service_name="sysmo%"
+Get-CimInstance -Class Win32_Service -Filter "Name LIKE '$service_name'
+Get-CimInstance -Class Win32_Service -Filter "Name LIKE '$service_name' and ProcessID>0" 
+Get-WmiObject -Query "select * from win32_service where name like '$service_name'" 
+
+#############################################################################
+# Service Owner
+ Get-Service workstation | select  Username,Starttype,BinaryPathName
+ Get-Service * | ft DisplayName,Username,Status,Starttype,BinaryPathName,Description
+
+
+########################################
+########################################
+#######                         ########
+#######    Scheduled Tasks     ########
+#######                         ########
+########################################
+########################################
+
+#########################################
+# List programs which start automatically in registry:
+PS C:\Users\alexe> Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\run
+
+SecurityHealth              : C:\Windows\system32\SecurityHealthSystray.exe            # deleted 
+RtHDVCpl                    : "C:\Program Files\Realtek\Audio\HDA\RtkNGUI64.exe" /s    # deleted   
+RtHDVBg_PushButton          : "C:\Program Files\Realtek\Audio\HDA\RAVBg64.exe" /IM     # deleted 
+WavesSvc                    : "C:\Program Files\Waves\MaxxAudio\WavesSvc64.exe" -Jack  # deleted 
+Logitech Download Assistant : C:\Windows\system32\rundll32.exe C:\Windows\System32\LogiLDA.dll,LogiFetch # deleted 
+PSPath                      : Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\run
+PSParentPath                : Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion
+PSChildName                 : run
+PSDrive                     : HKLM
+PSProvider                  : Microsoft.PowerShell.Core\Registry
+
 
 #############################################################
 # Get running scheduled tasks on a Windows system.
 #
 (get-scheduledtask).where({$_.state -eq 'running'})
+PS C:\Users\alexe> (get-scheduledtask).where({$_.state -eq 'running'})
 
-#############################################################
-# Get system uptime from multiple computers where $computers is an array of computer names running PowerShell v3 or later.
-#
-Get-CimInstance Win32_operatingsystem <# -ComputerName $computers #> |
-Select-Object PSComputername,LastBootUpTime,
-@{Name="Uptime";Expression = {(Get-Date) - $_.LastBootUptime}}
+TaskPath                                       TaskName                          State
+--------                                       --------                          -----
+\Microsoft\Windows\Multimedia\                 SystemSoundsService               Running
+\Microsoft\Windows\Wininet\                    CacheTask                         Running
+ 
+ 
 
-#############################################################
-# Another way to get drive utilization using PSDrives.
-#
-Get-PSDrive -PSProvider filesystem | where-object {$_.used -gt 0} |
-select-Object -property Root,@{name="SizeGB";expression={($_.used+$_.free)/1GB -as [int]}},
-@{name="UsedGB";expression={($_.used/1GB) -as [int]}},
-@{name="FreeGB";expression={($_.free/1GB) -as [int]}},
-@{name="PctFree";expression={[math]::round(($_.free/($_.used+$_.free))*100,2)}}
+########################################
+########################################
+#######                         ########
+#######      Processes          ########
+#######                         ########
+########################################
+########################################
 
+##########################################################
+# Find Active Processes with tasklist
+# tasklist.exe
+tasklist /v /fi    "CPUTIME gt 00:01:00"
+tasklist /apps /fi "CPUTIME gt 00:01:00"
+tasklist /v /fi    "MODULES eq WSOCK32.dll"
+tasklist /v /fi    "PID eq 10264"
+tasklist /svc /fi  "PID eq 10264"
+tasklist /m /fi    "PID eq 10264"
+tasklist /v /fi "STATUS eq RUNNING"
+tasklist /v /fi "CPUTIME gt 00:00:10"
 
-
-#############################################################
-# Work with quotes
-#
-
-$foo = 1,2,3
-"$foo[1]"     # yields "1 2 3[1]"
-"$($foo[1])"  # yields "2"
-
-$bar = "abc"
-"$bar.Length"    # yields "abc.Length"
-"$($bar.Length)" # yields "3"
-
-
-#############################################################
-# List installed applications and a few details. But use with caution. It is slow, not necessarily complete, and could have unexpected consequences. Heres a good link about using this class and alternatives.
-#
-gcim win32_product <# -ComputerName $env:computername #>  | 
-Sort-Object -property Vendor,Name | <# Select-Object #> Format-Table -property <#Vendor,#> Name,Version,
-@{Name="Installed";Expression = {($_.InstallDate.Insert(4,"-").insert(7,"-") -as [datetime]).ToShortDateString()}},
-@{Name="InstallSource";Expression = {$_.InstallSource+$_.PackageName}},
-InstallLocation
-
-#############################################################
-# Get details about all external scripts in your %PATH%.
-#
-gcm -commandtype externalscript | Get-Item | 
-Select-Object Directory,Name,Length,CreationTime,LastwriteTime,
-@{name="Signature";Expression={(Get-AuthenticodeSignature $_.fullname).Status }}
+#############################################
+# Win32_Process | Check process members and attributes
+Get-CimInstance -ClassName Win32_Process | select -first 1 *
+Get-CimInstance -ClassName Win32_Process | select -first 1 | gm
+Get-CimInstance -ClassName Win32_Process -filter 'name LIKE "notepad%"'
 
 
-#############################################################
-# Get Computer Serial Number
-(Get-WmiObject win32_bios).serialnumber                   
-GC70G73
-
-PS C:\home\src\Scripts> (Get-WmiObject win32_bios) | Select *
+############################################################################################
+# Get all of the PowerShell processes that have an encoded command:
+$powerShellProcesses = Get-CimInstance -ClassName Win32_Process -Filter 'CommandLine LIKE "%EncodedCommand%"'
 
 
-RunspaceId                     : d11ccdb2-1b0d-434f-be08-a69a58103adc
-__GENUS                        : 2
-__CLASS                        : Win32_BIOS
-__SUPERCLASS                   : CIM_BIOSElement
-__DYNASTY                      : CIM_ManagedSystemElement
-__RELPATH                      : Win32_BIOS.Name="2.14.0",SoftwareElementID="2.14.0",SoftwareElementState=3,TargetOperatingSystem=0,Version="DELL   - 1072009"
-__PROPERTY_COUNT               : 31
-__DERIVATION                   : {CIM_BIOSElement, CIM_SoftwareElement, CIM_LogicalElement, CIM_ManagedSystemElement}
-__SERVER                       : WIN11-2
-__NAMESPACE                    : root\cimv2
-__PATH                         : \\WIN11-2\root\cimv2:Win32_BIOS.Name="2.14.0",SoftwareElementID="2.14.0",SoftwareElementState=3,TargetOperatingSystem=0,Version="DELL   - 1072009"
-BiosCharacteristics            : {7, 9, 11, 12…}
-BIOSVersion                    : {DELL   - 1072009, 2.14.0, American Megatrends - 5000F}
-BuildNumber                    : 
-Caption                        : 2.14.0
-CodeSet                        : 
-CurrentLanguage                : en|US|iso8859-1
-Description                    : 2.14.0
-EmbeddedControllerMajorVersion : 255
-EmbeddedControllerMinorVersion : 255
-IdentificationCode             : 
-InstallableLanguages           : 1
-InstallDate                    : 
-LanguageEdition                : 
-ListOfLanguages                : {en|US|iso8859-1}
-Manufacturer                   : Dell Inc.
-Name                           : 2.14.0
-OtherTargetOS                  : 
-PrimaryBIOS                    : True
-ReleaseDate                    : 20211216000000.000000+000
-SerialNumber                   : GC70G73
-SMBIOSBIOSVersion              : 2.14.0
-SMBIOSMajorVersion             : 3
-SMBIOSMinorVersion             : 2
-SMBIOSPresent                  : True
-SoftwareElementID              : 2.14.0
-SoftwareElementState           : 3
-Status                         : OK
-SystemBiosMajorVersion         : 2
-SystemBiosMinorVersion         : 14
-TargetOperatingSystem          : 0
-Version                        : DELL   - 1072009
+########################################
+########################################
+#######                         ########
+#######      Applications       ########
+#######                         ########
+########################################
+########################################
+
+#############################################
+# Installed Applications Appx packages 
+# Get-AppxPackage
+ Get-AppxPackage -AllUser  | ft RunspaceId, PublisherId, PackageFullName, PackageUserInformation , InstallLocation # see output in C:\home\data\Reports\Get-AppxPackage-2022-05-18.txt
+ # to removed Appx Package
+ # Remove-AppxPackage -Package <packagefullname>
 
 
-#############################################################
-# Get folder utilization for a given directory.
-#
-dir -path C:\home -file -recurse -force | 
-measure-object length -sum -max -average | 
-Select-Object @{name="Total Files";Expression={$_.count}},
-@{name="Largest File(MB)";Expression={"{0:F2}" -f ($_.maximum/1MB)}},
-@{name="Average Size(MB)";Expression={"{0:F2}" -f ($_.average/1MB)}},
-@{name="Total Size(MB)";Expression={"{0:F2}" -f ($_.sum/1MB)}}
+########################################
+########################################
+#######                         ########
+#######      Events             ########
+#######                         ########
+########################################
+########################################
 
 ############################################################# 
-# Get event log utilization for remote computers defined in $computers. The remote computers must be running PowerShell v3 or later.
-#
-gcim Win32_NTEventLogFile <#-computer $computers#> -filter  "NumberOfRecords > 0" | 
-Select-Object @{Name="Computername";Expression={$_.CSName}},
-LogFileName,
-NumberOfRecords,
-@{Name="Size(KB)";Expression={$_.FileSize/1kb}},
-@{Name="MaxSize(KB)";Expression={($_.MaxFileSize/1KB) -as [int]}}, 
-@{name="PercentUsed";Expression={[math]::round(($_.filesize/$_.maxFileSize)*100,2)}} | Sort Computername,PercentUsed | 
-Format-Table -GroupBy Computername -property LogFileName,NumberOfRecords,*Size*,PercentUsed
+# Get events during last 2 hours from all logs 
+# FilterHashtable LogName="*" is available in PowerShell 5 ; '{0}.{1}' -f $PSVersionTable.PSVersion.Major, $PSVersionTable.PSVersion.Minor 
+# FilterHashtable can't search by EventRecordID
+$RecId=11035; $Providers=('Service Control Manager'))
+$Level=@(0,1,2);  # 0 - LogAlways, 1-Critical, 2-Error, 3-Warning, 4-Informational, 4-Verbose
+$Hours=2
+$EVENTS=Get-WinEvent -FilterHashtable @{LogName="*"; Level=$Level; StartTime=((Get-Date).AddHours(-$Hours))} -ErrorAction Ignore 
+'{0} events found ' -f $EVENTS.Count
+$EVENTS | sort-Object TimeCreated | select -top 5 *
+$EVENTS | where RecordId -eq 
 
 #############################################################
-# Get free space for drive C on the local computer formatted in GB
-#
-(gcim win32_logicaldisk -filter "deviceid =  C: ").FreeSpace/1gb
-#or use the PSDrive
-(gdr c).Free/1gb
+# Get XML of Event by RecID and Proiders
+# Get-EventXmlByRecIdAndProvider  <RecId>,<Providers>
+# Examples: Get-XmlEvent 90867 613
+# 
 
 
-##################################################################
-# Out String 
-# Use the Width parameter to prevent truncation.
-
-PS> @{TestKey = ('x' * 200)} | Out-String
-Name                           Value
-----                           -----
-TestKey                        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...
-
-PS> @{TestKey = ('x' * 200)} | Out-String -Width 250
-Name                           Value
-----                           -----
-TestKey                        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-##################################################################
-# Out-file
-# Set file output width for entire scope
- $PSDefaultParameterValues['out-file:width'] = 2000
-
-####################################################################
-# Send output to a file in ASCII format
-# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/out-file?view=powershell-7.2
-$Procs = Get-Process
-Out-File -FilePath .\Process.txt -InputObject $Procs -Encoding ASCII -Width 50
+<#	
+	if ($Exceptions -eq '*') {
+		if ($RecIds ) { 
+			$Exceptions=@() 
+		} elseif ($EventIDs) {
+			$Exceptions=@('Channel="PowerShellCore/Operational"') 
+		} else {
+			$Exceptions=@('EventID=5379 and Channel="Security"','Channel="PowerShellCore/Operational"') 
+		}
+	}
+	if ($Exceptions) { $Global:FILTERXPATH+=" and not("+@($Exceptions -join ') and not(')+")" }
+#>
+	
 
 
 #############################################################
-# Get a date string in the format year-month-day-hour-min-second. The abbreviations in the format string are case-sensitive.
-#
-get-date -format yyyyMMddhhmmss
+# Convert to XML
+# 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "String" -Depth 3
+# Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0 | % {$_.ToXml() -replace("><",">`n<")}
+    
+$RecId=11035; $Prvds=('Service Control Manager'); $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Prvds -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $EVENTS | 
+  % {$pad=1;$eNo++; $_.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n")} |
+  % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }
+"Total: $eNo Event$(if ($eNo -ne 1) {'s'}) "
+
+$EVENTS=Get-WinEvent -FilterHashtable @{LogName="*"; Level=(0,1,2); StartTime=((Get-Date).AddHours(-2))} -ErrorAction Ignore ; $EVENTS | sort-Object TimeCreated
 
 #############################################################
-# Get the last time your computer booted. Can be modified to query remote computers.
-#
-(gcim win32_operatingsystem).LastBootUpTime
-# or modify to get uptime
-(get-date) - ((gcim win32_operatingsystem).LastBootUpTime)
-
-#############################################################
-# Get configured TrustedHosts.
-#
-(get-wsmaninstance wsman/config/client).trustedhosts
-
-#############################################################
-# Get all drives identified by a standard drive letter. Im suppressing errors to ignore non-existent drive letters.
-#
-get-volume -driveletter (97..122) -ErrorAction SilentlyContinue
-
-#############################################################
-# Get total physical memory formatted as GB.
-#
-gcim win32_computersystem <#-computer SRV1,SRV2 #> | Select PSComputername,@{Name="Memory";Expression={$_.TotalPhysicalMemory/1GB -as [int]}}
-
-#############################################################
-# Get IPv4 addresses on your local adapters.
-#
-Get-NetIPAddress -AddressFamily IPv4 | where-object IPAddress -notmatch "^(169)|(127)" | Sort-Object IPAddress | select IPaddress,Interface*
-# or all ip-addresses
-Get-NetIPAddress -AddressFamily IPv4 | Sort-Object IPAddress | select IPaddress,Interface* 
-
-#############################################################
-# Find all processes that use a given module (dll). You can filter by the dll name or use part of a path.
-#
-get-process | Where { $_.Modules.filename -match "netapi32.dll"}
-
-#############################################################
-# Gwt Process Owner
-$proc=Get-CimInstance Win32_Process -Filter "name like 'notepad%'"
-Invoke-CimMethod -InputObject $proc -MethodName GetOwner
-
-oreach($proc in Get-CimInstance Win32_Process -Filter "name like 'k%'") { Invoke-CimMethod -InputObject $proc -MethodName GetOwner }
-Domain  ReturnValue User  PSComputerName
-------  ----------- ----  --------------
-                  2
-                  2
-WIN11-2           0 alexe
-
-PS C:\home\src\Scripts> Get-CimInstance Win32_Process -Filter "name like 'k%'" | fl *
-
-
-ProcessName                : kpm_service.exe
-Handles                    : 435
-VM                         : 156045312
-WS                         : 30523392
-Path                       : 
-Caption                    : kpm_service.exe
-Description                : kpm_service.exe
-InstallDate                : 
-Name                       : kpm_service.exe
-Status                     : 
-CreationClassName          : Win32_Process
-CreationDate               : 4/27/2022 8:31:45 AM
-CSCreationClassName        : Win32_ComputerSystem
-CSName                     : WIN11-2
-ExecutionState             : 
-Handle                     : 5432
-KernelModeTime             : 21875000
-OSCreationClassName        : Win32_OperatingSystem
-OSName                     : Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk1\Partition4
-Priority                   : 8
-TerminationDate            : 
-UserModeTime               : 139218750
-WorkingSetSize             : 30523392
-CommandLine                : 
-ExecutablePath             : 
-HandleCount                : 435
-MaximumWorkingSetSize      : 
-MinimumWorkingSetSize      : 
-OtherOperationCount        : 45169
-OtherTransferCount         : 563233
-PageFaults                 : 305543
-PageFileUsage              : 11260
-ParentProcessId            : 1580
-PeakPageFileUsage          : 21976
-PeakVirtualSize            : 171053056
-PeakWorkingSetSize         : 41452
-PrivatePageCount           : 11530240
-ProcessId                  : 5432
-QuotaNonPagedPoolUsage     : 29
-QuotaPagedPoolUsage        : 183
-QuotaPeakNonPagedPoolUsage : 148
-QuotaPeakPagedPoolUsage    : 185
-ReadOperationCount         : 14576
-ReadTransferCount          : 1371332836
-SessionId                  : 0
-ThreadCount                : 16
-VirtualSize                : 156045312
-WindowsVersion             : 10.0.22000
-WriteOperationCount        : 188
-WriteTransferCount         : 2649694
-PSComputerName             : 
-CimClass                   : root/cimv2:Win32_Process
-CimInstanceProperties      : {Caption, Description, InstallDate, Name…}
-CimSystemProperties        : Microsoft.Management.Infrastructure.CimSystemProperties
-
-ProcessName                : ksde.exe
-Handles                    : 812
-VM                         : 229888000
-WS                         : 16125952
-Path                       : 
-Caption                    : ksde.exe
-Description                : ksde.exe
-InstallDate                : 
-Name                       : ksde.exe
-Status                     : 
-CreationClassName          : Win32_Process
-CreationDate               : 4/27/2022 8:34:46 AM
-CSCreationClassName        : Win32_ComputerSystem
-CSName                     : WIN11-2
-ExecutionState             : 
-Handle                     : 2868
-KernelModeTime             : 66718750
-OSCreationClassName        : Win32_OperatingSystem
-OSName                     : Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk1\Partition4
-Priority                   : 8
-TerminationDate            : 
-UserModeTime               : 53750000
-WorkingSetSize             : 16125952
-CommandLine                : 
-ExecutablePath             : 
-HandleCount                : 812
-MaximumWorkingSetSize      : 
-MinimumWorkingSetSize      : 
-OtherOperationCount        : 72986
-OtherTransferCount         : 2887767
-PageFaults                 : 132915
-PageFileUsage              : 32420
-ParentProcessId            : 1580
-PeakPageFileUsage          : 35180
-PeakVirtualSize            : 246943744
-PeakWorkingSetSize         : 50864
-PrivatePageCount           : 33198080
-ProcessId                  : 2868
-QuotaNonPagedPoolUsage     : 4226
-QuotaPagedPoolUsage        : 259
-QuotaPeakNonPagedPoolUsage : 4632
-QuotaPeakPagedPoolUsage    : 278
-ReadOperationCount         : 5634
-ReadTransferCount          : 6398276
-SessionId                  : 0
-ThreadCount                : 33
-VirtualSize                : 229888000
-WindowsVersion             : 10.0.22000
-WriteOperationCount        : 21304
-WriteTransferCount         : 13608052
-PSComputerName             : 
-CimClass                   : root/cimv2:Win32_Process
-CimInstanceProperties      : {Caption, Description, InstallDate, Name…}
-CimSystemProperties        : Microsoft.Management.Infrastructure.CimSystemProperties
-
-ProcessName                : ksdeui.exe
-Handles                    : 373
-VM                         : 143912960
-WS                         : 4820992
-Path                       : C:\Program Files (x86)\Kaspersky Lab\Kaspersky VPN 5.3\ksdeui.exe
-Caption                    : ksdeui.exe
-Description                : ksdeui.exe
-InstallDate                : 
-Name                       : ksdeui.exe
-Status                     : 
-CreationClassName          : Win32_Process
-CreationDate               : 4/27/2022 8:34:54 AM
-CSCreationClassName        : Win32_ComputerSystem
-CSName                     : WIN11-2
-ExecutionState             : 
-Handle                     : 12148
-KernelModeTime             : 13125000
-OSCreationClassName        : Win32_OperatingSystem
-OSName                     : Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk1\Partition4
-Priority                   : 8
-TerminationDate            : 
-UserModeTime               : 11250000
-WorkingSetSize             : 4820992
-CommandLine                : "C:\Program Files (x86)\Kaspersky Lab\Kaspersky VPN 5.3\ksdeui.exe" -hidden
-ExecutablePath             : C:\Program Files (x86)\Kaspersky Lab\Kaspersky VPN 5.3\ksdeui.exe
-HandleCount                : 373
-MaximumWorkingSetSize      : 1380
-MinimumWorkingSetSize      : 200
-OtherOperationCount        : 906
-OtherTransferCount         : 3426
-PageFaults                 : 19384
-PageFileUsage              : 8920
-ParentProcessId            : 2868
-PeakPageFileUsage          : 9264
-PeakVirtualSize            : 150032384
-PeakWorkingSetSize         : 21660
-PrivatePageCount           : 9134080
-ProcessId                  : 12148
-QuotaNonPagedPoolUsage     : 20
-QuotaPagedPoolUsage        : 199
-QuotaPeakNonPagedPoolUsage : 22
-QuotaPeakPagedPoolUsage    : 201
-ReadOperationCount         : 11
-ReadTransferCount          : 172440
-SessionId                  : 1
-ThreadCount                : 6
-VirtualSize                : 143912960
-WindowsVersion             : 10.0.22000
-WriteOperationCount        : 0
-WriteTransferCount         : 0
-PSComputerName             : 
-CimClass                   : root/cimv2:Win32_Process
-CimInstanceProperties      : {Caption, Description, InstallDate, Name…}
-CimSystemProperties        : Microsoft.Management.Infrastructure.CimSystemProperties
+# Convert to Json
+# 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json 
+( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json -Compress
 
 
 #############################################################
-# Group process names and report memory
-# get-process is gps
-get-process | Group-Object name, {[int]($_.WorkingSet / 1MB)} -NoElement | sort name
-gps | Group-Object {[int]($_.WorkingSet / 1MB)},name -NoElement | sort name
-
-#############################################################
-# Get cmdlets by using a parameter name and type
-#  
-Get-Command -ParameterName *Auth* -ParameterType AuthenticationMechanism | format-table Name, Definition
-
-#############################################################
-# Get a GUI interface for any PowerShell cmdlet
-Show-Command Get-Service
-
-############################################################# 
 # Get event logs changed during 4 hours
 get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}
 (get-winevent -listlog * -ea 0 | where-object {$_.recordcount -gt 0 -and $_.LastWriteTime -gt ((Get-Date).AddHours(-4))}).LogName
 
-############################################################# 
-# Get error and warnings event during last 2 hours in 'System','Application','Setup','Security' logs
+#############################################################
+# Get events during last 2 hours from 'System','Application','Setup','Security' logs
 Get-WinEvent -FilterHashtable @{LogName=('System','Application','Setup','Security'); Level=(0,1,2,3); StartTime=((Get-Date).AddHours(-2))} -ErrorAction Ignore | sort-Object ProviderName,TimeCreated
+
+#####################################################
+# List installed Applications:
+ wmic product get name,version,vendor
 
 #############################################################
 # List the error events during last 2 hours
@@ -435,38 +309,195 @@ Get-WinEvent -FilterHashtable @{LogName=('System','Application','Setup','Securit
 get-winevent -FilterHashtable @{Logname = 'System';Level=2} -MaxEvents 10 | sort-Object ProviderName,TimeCreated
 
 
+########################################
+########################################
+#######                         ########
+#######    Event Watchers       ########
+#######    Event Consumers      ########
+#######                         ########
+########################################
+########################################
+# https://www.blackhat.com/docs/us-15/materials/us-15-Graeber-Abusing-Windows-Management-Instrumentation-WMI-To-Build-A-Persistent%20Asynchronous-And-Fileless-Backdoor-wp.pdf
+# WMI Defense, Existing Detection Utilities
+Get-WmiObject -Class __FilterToConsumerBinding -Namespace:'root\subscription'
+Get-WmiObject -Class __EventFilter
+Get-WmiObject -Class __EventConsumer
 
-#############################################################
-# List all PowerShell profile script settings. You will see different values for different hosts, such as the PowerShell ISE, as well as between Windows PowerShell and PowerShell 7.
+# WMI Attack Detection with WMI-To-Build-A-Persistent%20Asynchronous-And-Fileless-Backdoor-wp
+$Credential = Get-Credential 'WIN11-2\Administrator'
+
+##############################################################################################################
+#PS C:\Users\alexe> Get-WmiObject -Class __FilterToConsumerBinding -Namespace:'root\subscription'
+__GENUS                 : 2
+__CLASS                 : __FilterToConsumerBinding
+__SUPERCLASS            : __IndicationRelated
+__DYNASTY               : __SystemClass
+__RELPATH               : __FilterToConsumerBinding.Consumer="NTEventLogEventConsumer.Name=\"SCM Event Log Consumer\"",Filter="__EventFilter.Name=\"SCM Event Log Filter\""
+__PROPERTY_COUNT        : 7
+__DERIVATION            : {__IndicationRelated, __SystemClass}
+__SERVER                : WIN11-2
+__NAMESPACE             : ROOT\subscription
+__PATH                  : \\WIN11-2\ROOT\subscription:__FilterToConsumerBinding.Consumer="NTEventLogEventConsumer.Name=\"SCM Event Log Consumer\"",Filter="__EventFilter.Name=\"SCM Event Log Filter\""
+Consumer                : NTEventLogEventConsumer.Name="SCM Event Log Consumer"
+CreatorSID              : {1, 2, 0, 0...}
+DeliverSynchronously    : False
+DeliveryQoS             :
+Filter                  : __EventFilter.Name="SCM Event Log Filter"
+MaintainSecurityContext : False
+SlowDownProviders       : False
+PSComputerName          : WIN11-2
+
+
+#########################################################
+# Get-CimInstance  -Class __FilterToConsumerBinding -Namespace:'root\subscription'
+PS C:\Users\alexe> Get-CimInstance  -Class __FilterToConsumerBinding -Namespace:'root\subscription'
+Consumer                : NTEventLogEventConsumer (Name = "SCM Event Log Consumer")
+CreatorSID              : {1, 2, 0, 0...}
+DeliverSynchronously    : False
+DeliveryQoS             :
+Filter                  : __EventFilter (Name = "SCM Event Log Filter")
+MaintainSecurityContext : False
+SlowDownProviders       : False
+PSComputerName          :
+
+
+############################################################
+# Tentary if operator available in version 7 
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_Operators?view=powershell-7.2#ternary-operator--if-true--if-false
 #
-$profile | select *host* | format-list
+#  
+$PSVersionTable.PSVersion.Major # must be 7+
+#($condition ? $valueIfTrue : $valueIfFalse) 
 
-#############################################################
-# Show what PowerShell profile scripts exist.
-#
-($profile.psobject.properties).where({$_.name -ne 'length'}).where({Test-Path $_.value }) | Select-Object Name,Value
+##############################################################
+# A Reusable File System Event Watcher for PowerShell
+# https://devblogs.microsoft.com/powershell-community/a-reusable-file-system-event-watcher-for-powershell/
 
-#############################################################
-# Get the current date and time formatted as UTC time.
-#
-(get-date).ToUniversalTime()
-# or pretty it up
-"$((get-date).ToUniversalTime()) UTC"
-"$((Get-Date).ToUniversalTime().tolongdatestring()) UTC"
+# To create the watcher that sends notifications to PowerShell’s engine event queue using the source identifier 
+New-FileSystemWatcher -SourceIdentifier "MyEvent" -Path C:\Tempfiles
 
-#############################################################
-# Get a formatted report of all commands with a synopsis.
-#
-(Get-Command).where({ $_.source -match "Wdac"}) | Sort-Object Source, CommandType, Name | Format-Table -AutoSize -GroupBy Source -Property CommandType, Name, 
-    @{Name = "Synopsis"; Width=100; Expression = {(Get-Help $_.name).Synopsis  -replace "`r",'' -replace "`n",'' -replace '\s+',' '}} #  -replace '(?<=.{100}).+' 
+# To consume the event by registering an event handler for the same source identifier. 
+# The following example just writes the whole event converted to JSON to the console:
 
-(Get-Command).where({ $_.source }) | Format-Table -AutoSize -Property Source, CommandType, @{Name="Synopsis";Width=100;Expression={(Get-Help $_.name).Synopsis  -replace "[`r`n]",'' -replace '\s+',' '}} > all_commands.txt
+Register-EngineEvent -SourceIdentifier "MyEvent" -Action { $event | ConvertTo-Json | Write-Host }
+# to generate event
+ "XYZ" >> C:\Tempfilesxyz
 
-#############################################################
-# How long has your PowerShell session been running?
-#
-(Get-Date) - (get-process -id $pid).starttime
+# To suspend the notification temporarily and to resume it later the following two commands can be used:
+ Suspend-FileSystemWatcher -SourceIdentifier "MyEvent"
+ Resume-FileSystemWatcher -SourceIdentifier "MyEvent"
 
+# To keep track of all the filesystem watchers created in the current PowerShell process
+ Get-FileSystemWatcher
+# to dispose one watcher
+Remove-FileSystemWatcher -SourceIdentifier "MyEvent"
+
+# to dispose all 
+Get-FileSystemWatcher | Remove-FileSystemWatcher
+
+
+###########################
+###########################
+###########################
+######              #######
+###### Accelerators #######
+######              #######
+###########################
+###########################
+###########################
+
+#####################################
+# Type Accelerators
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_type_accelerators?view=powershell-7.2
+Usefull: adsi; adsisearcher; wmisearcher; Environment
+
+
+#######################################
+# All type acceletators
+# 
+$accs=[psObject].Assembly.GetType('System.Management.Automation.TypeAccelerators')::Get | % keys | sort -top 300 | % {
+ $name=$_; 
+ $type=(Invoke-Expression "[$name]"); 
+ $tdomain=$type.FullName -replace('System\.Management\.Automation\..*','Automation') -replace('Microsoft.Management.Infrastructure.*','Infrastructure') -replace('Microsoft.PowerShell.Commands','Commands') -replace('([^.]*)\..*','$1');
+ $tbase=$type.FullName -replace('.*\.([^.]*)','$1');
+ $tpath=$type.FullName -replace("^.*$tdomain") -replace("\.*$tbase$") -replace('\.+','.') -replace('^\.');
+ $methods=($type.GetMethods()).Name|sort -uniq;
+ [pscustomobject] @{ 
+   Name=$name; Domain=$tdomain; BaseType=$tbase; Path=$tpath; Type=$type;
+   Methods5=$(($methods|? { $_ -NotMatch '^(Add|Append|Clone|Compare|Copy|Clear|Delete|Equals|Get(.*)Type|Is|ToString).*$' } | select -first 5 ) -join(','));}
+}
+$accs| select -first 30 | ft
+$accs|? Name -match '.*search.*'
+
+### original : https://renenyffenegger.ch/notes/Windows/PowerShell/language/object/type/accelerators  
+$accels = [psObject].Assembly.GetType('System.Management.Automation.TypeAccelerators')::Get
+$names  = $accels.keys | sort-object
+foreach ($name in $names) { '{0, -30} {1}' -f $name, $accels[$name].FullName }
+
+([Environment].GetMembers()) | select Name |? Name -like '*Var*'
+
+#########################
+# C# Type: System.Management.Automation.TypeAccelerators 
+# Members 
+[psObject].Assembly.GetType('System.Management.Automation.TypeAccelerators').GetMembers() | select Name
+Name
+----
+get_Get
+Add
+Remove
+GetType
+ToString
+Equals
+GetHashCode
+Get
+
+
+
+#################################################
+# Get Bios details
+# wmisearcher
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_wql?view=powershell-5.1#long-description
+
+[wmisearcher]$bios = "Select * from Win32_Bios"
+$bios.get().Path.Path
+$bios.get().Path.RelativePath
+
+# all attributes (cached into $bios )
+([wmisearcher]$bios="Select * from Win32_Bios").Get() | select *
+$bios.get().Path
+ 
+# Serial Number
+([wmisearcher]$bios = "Select * from Win32_Bios").Get().SerialNumber
+([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select -first 1
+Invoke-CimMethod -InputObject (([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select -first 1) -MethodName GetOwner # error - wmi is not accepted, use cim like below
+Invoke-CimMethod -InputObject (gcim -query "select * from Win32_Process where name like 'pwsh%exe'" | select -first 1) -MethodName GetOwner 
+
+########################################
+########################################
+#######                         ########
+#######      ADSI               ########
+#######                         ########
+########################################
+# Active Directory Service Interface   #
+########################################
+
+########################################
+# ADSI WinNT provider
+# https://docs.microsoft.com/en-us/windows/win32/adsi/adsi-winnt-provider
+# accounts, groups and servicess
+([ADSI] "WinNT://$Env:ComputerName").Children | select SchemaClassName,Name,Path
+
+
+#################################################
+# wmisearcherType Accelerators
+# 
+([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select *
+
+([wmisearcher]'select * from meta_class').Get() | select * | ft -auto Name,@{n='SuperClass';e={$_.__SUPERCLASS}},@{n='Dynasty';e={$_.__DYNASTY}},@{n='Props';e={$_.__PROPERTY_COUNT}}
+
+([wmisearcher]'select * from meta_class').Get() | ? Name -notlike '*Perf*' | select * | ft -auto Name,@{n='SuperClass';e={$_.__SUPERCLASS}},@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
+
+([wmisearcher]'select * from meta_class').Get() | ? Name -like '*Process*' |? Name -notlike 'Win32_Perf*' | select * | ft -auto Name,@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
 
 #############################################################
 # OS Info - Users, Groups Services
@@ -474,9 +505,8 @@ $profile | select *host* | format-list
  ([ADSI] "WinNT://$Env:ComputerName").Children | select SchemaClassName,Name,Path
 
 #############################################################
-# User Properties
+# User Account Properties
 #
-
 ([ADSI] "WinNT://$Env:ComputerName").Children | where { $_.SchemaClassName -eq 'User' }  | % {
     $hTbl=$_;
     "`n{0,35} : {1}" -f "UserName", $hTbl.Name.Value
@@ -570,6 +600,37 @@ $Prop=([ADSI] "WinNT://WORKGROUP/WIN11-2/Administrator").PsBase.Properties;
 " ** {0,31} : {1} **" -f "User", $Prop.Name.Value; 
 $Prop.Keys | % { $k=$_;$v=$Prop.$k.value;$t=$v.GetType();switch($t) { int {$v=$v.ToString()}; string { if ($k -eq "Name") {$k="-";} }; default {$v="tbd"}}; if($k -ne "-") { "{0,35} : {1}" -f "$k($t)",$v }  }
 
+#############################################################
+# Account Logon History
+# Query all logon events with id 4624 
+# See Get-UserLogonHistory.ps1
+# https://www.pdq.com/blog/history-of-logged-on-users/
+
+
+	$LogonEvents=Get-EventLog -LogName "Security" -InstanceId 4624 -Newest 5000 -ErrorAction "SilentlyContinue"  | 
+	select-object *,
+	 @{n='SecurityId';e={$_.ReplacementStrings[4]}},
+	 @{n='AccountName';e={$_.ReplacementStrings[5]}},
+	 @{n='AccountDomain';e={$_.ReplacementStrings[6]}},
+	 @{n='AccountType';e={$_.ReplacementStrings[8]}},
+	 @{n='LogonProcess';e={$_.ReplacementStrings[9]}},
+	 @{n='AuthPackage';e={$_.ReplacementStrings[10]}},
+	 @{n='ProcessPath';e={$_.ReplacementStrings[17]}},
+	 @{n='ProcessID';e={[uint32]$_.ReplacementStrings[16]}}	| 
+	 Group-Object AccountName,AccountType,ProcessPath,LogonProcess
+
+$LogonEvents | Select *, @{n='AccountName';e={$_.Values[0]}}, @{n='AccountType';e={$_.Values[1]}},
+	@{n='ProcessPath';e={$_.Values[2]}},
+	@{n='LogonProcess';e={$_.Values[3]}},
+	@{n='FirsTime';e={$_.Group[$_.Count-1].TimeGenerated}},@{n='LastTime';e={$_.Group[0].TimeGenerated}},
+	@{n='FirstPID';e={$_.Group[$_.Count-1].ProcessID}},@{n='LastPID';e={$_.Group[0].ProcessID}},
+	@{n='FirstIndex';e={$_.Group[$_.Count-1].Index}},@{n='LastIndex';e={$_.Group[0].Index}} ,
+	@{n='LstPid'    ;e={$_.Group[0].ProcessId}},
+	@{n='CntPid'    ;e={($_.Group | Group-Object ProcessID).Length}},
+	@{n='ListOfPids';e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},
+	@{n='LstMessage'    ;e={$_.Group[0].Message2}} |
+ Sort-Object AccountName, AccountType, ProcessPath, LogonProcess, Count | Select -exclude Group,Values,Name,LstMessage,FirstIndex,LastIndex | 
+ Format-Table -auto *
 
 #############################################################
 # Get Data Type Members and Properites
@@ -603,28 +664,291 @@ $Prop.Keys | % { $k=$_;$v=$Prop.$k.value;$t=$v.GetType();switch($t) { int {$v=$v
 #
 Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object -expand CimInstanceProperties | Sort-Object Name |  Format-Table Name,Value,Flags
 
+
 #############################################################
-# Search Commands and Modules by Verbs
-# https://docs.microsoft.com/en-us/powershell/scripting/samples/using-format-commands-to-change-output-view?view=powershell-7.2
-Get-Command -Verb Format -Module Microsoft.PowerShell.Utility
-Get-Command -Verb Format | Format-Table -Wrap -AutoSize CommandType, Name, Source, @{n='Definition';e={$_.Definition -replace("`n","") }}
+# Another way to get drive utilization using PSDrives.
+#
+Get-PSDrive -PSProvider filesystem | where-object {$_.used -gt 0} |
+select-Object -property Root,@{name="SizeGB";expression={($_.used+$_.free)/1GB -as [int]}},
+@{name="UsedGB";expression={($_.used/1GB) -as [int]}},
+@{name="FreeGB";expression={($_.free/1GB) -as [int]}},
+@{name="PctFree";expression={[math]::round(($_.free/($_.used+$_.free))*100,2)}}
 
 
 #############################################################
-# Install/Unistall module
+# Work with quotes
+#
+
+$foo = 1,2,3
+"$foo[1]"     # yields "1 2 3[1]"
+"$($foo[1])"  # yields "2"
+
+$bar = "abc"
+"$bar.Length"    # yields "abc.Length"
+"$($bar.Length)" # yields "3"
+
+
+#############################################################
+# List installed applications and a few details. But use with caution. It is slow, not necessarily complete, and could have unexpected consequences. Heres a good link about using this class and alternatives.
+#
+gcim win32_product <# -ComputerName $env:computername #>  | 
+Sort-Object -property Vendor,Name | <# Select-Object #> Format-Table -property <#Vendor,#> Name,Version,
+@{Name="Installed";Expression = {($_.InstallDate.Insert(4,"-").insert(7,"-") -as [datetime]).ToShortDateString()}},
+@{Name="InstallSource";Expression = {$_.InstallSource+$_.PackageName}},
+InstallLocation
+
+#############################################################
+# Get details about all external scripts in your %PATH%.
+#
+gcm -commandtype externalscript | Get-Item | 
+Select-Object Directory,Name,Length,CreationTime,LastwriteTime,
+@{name="Signature";Expression={(Get-AuthenticodeSignature $_.fullname).Status }}
+
+
+#############################################################
+# Get Computer Serial Number
+(Get-WmiObject win32_bios).serialnumber                   
+GC70G73
+
+PS C:\home\src\Scripts> (Get-WmiObject win32_bios) | Select *
+
+
+#############################################################
+# Get folder utilization for a given directory.
+#
+dir -path C:\home -file -recurse -force | 
+measure-object length -sum -max -average | 
+Select-Object @{name="Total Files";Expression={$_.count}},
+@{name="Largest File(MB)";Expression={"{0:F2}" -f ($_.maximum/1MB)}},
+@{name="Average Size(MB)";Expression={"{0:F2}" -f ($_.average/1MB)}},
+@{name="Total Size(MB)";Expression={"{0:F2}" -f ($_.sum/1MB)}}
+
+############################################################# 
+# Get event log utilization for remote computers defined in $computers. The remote computers must be running PowerShell v3 or later.
+#
+gcim Win32_NTEventLogFile <#-computer $computers#> -filter  "NumberOfRecords > 0" | 
+Select-Object @{Name="Computername";Expression={$_.CSName}},
+LogFileName,
+NumberOfRecords,
+@{Name="Size(KB)";Expression={$_.FileSize/1kb}},
+@{Name="MaxSize(KB)";Expression={($_.MaxFileSize/1KB) -as [int]}}, 
+@{name="PercentUsed";Expression={[math]::round(($_.filesize/$_.maxFileSize)*100,2)}} | Sort Computername,PercentUsed | 
+Format-Table -GroupBy Computername -property LogFileName,NumberOfRecords,*Size*,PercentUsed
+
+#############################################################
+# Get free space for drive C on the local computer formatted in GB
+#
+(gcim win32_logicaldisk -filter "deviceid =  C: ").FreeSpace/1gb
+#or use the PSDrive
+(gdr c).Free/1gb
+
+###################################################
+# Mount ISO image
+$diskImage = Mount-DiskImage -ImagePath '<iso>' -NoDriveLetter -PassThru
+$path = ('{0}\' -f $imgDevice.DevicePath)
+
+#############################################################
+# Get the last time your computer booted. Can be modified to query remote computers.
+#
+(gcim win32_operatingsystem).LastBootUpTime
+# or modify to get uptime
+(get-date) - ((gcim win32_operatingsystem).LastBootUpTime)
+
+Get-CimInstance Win32_operatingsystem | Select-Object PSComputername,LastBootUpTime,@{Name="Uptime";Expression = {(Get-Date) - $_.LastBootUptime}}
+<# -ComputerName $computers #> 
+
+# Last BootUp day of the week
+(gcim win32_operatingsystem).LastBootUpTime.Date.DayofWeek
+
+
+#############################################################
+# Get configured TrustedHosts.
+#
+(get-wsmaninstance wsman/config/client).trustedhosts
+
+#############################################################
+# Get all drives identified by a standard drive letter. Im suppressing errors to ignore non-existent drive letters.
+#
+get-volume -driveletter (97..122) -ErrorAction SilentlyContinue
+
+#############################################################
+# Get total physical memory formatted as GB.
+#
+gcim win32_computersystem <#-computer SRV1,SRV2 #> | Select PSComputername,@{Name="Memory";Expression={$_.TotalPhysicalMemory/1GB -as [int]}}
+
+#############################################################
+# Get IPv4 addresses on your local adapters.
+#
+Get-NetIPAddress -AddressFamily IPv4 | where-object IPAddress -notmatch "^(169)|(127)" | Sort-Object IPAddress | select IPaddress,Interface*
+# or all ip-addresses
+Get-NetIPAddress -AddressFamily IPv4 | Sort-Object IPAddress | select IPaddress,Interface* 
+
+###########################################
+# Process list
+#
+See ps-info.ps1
+
+tasklist
+
+Get-Process
+
+Win+R resource monitor 
+
+Win+R  task manager | Ctrl+Shift+Esc
+
+#####################################
+# Get-Process by Window Title
+# http://woshub.com/managing-windows-processes-powershell/
+Get-Process | Where-Object {$_.mainWindowTitle} | Format-Table Id, Name, mainWindowtitle
+
+#############################################################
+# Find all processes that use a given module (dll). You can filter by the dll name or use part of a path.
+# https://www.pdq.com/blog/powershell-get-cpu-usage-for-a-process-using-get-counter/
+get-process | Where { $_.Modules.filename -match "netapi32.dll"}
+
+############################################################
+# Get the list of process associated with TCP connections
+# https://techexpert.tips/powershell/powershell-which-process-is-accessing-an-ip-address/
+
+
+
+Get-NetTCPConnection | ? RemoteAddress -ne '127.0.0.1' | Sort -Desc State,LocalPort |
+  Select-Object -First 20 -Property LocalPort, RemoteAddress, 
+   @{name='ProcessID';expression={$global:proc=(Get-Process -IncludeUserName -Id $_.OwningProcess); $_.OwningProcess}}, 
+   @{name='ProcessName';expression={$global:proc.Name}},
+   @{name='Module';expression={$global:proc.MainModule}} | Format-Table -AutoSize
+
+#############################################################################
+# Get CPU Usage for a Process Using Get-Counter
 # 
-Install-Module -Name PSDesiredStateConfiguration -AllowPrerelease
-Uninstall-Module -Name PSDesiredStateConfiguration
+* Option A: This is if you just have the name of the process; partial name OK
+$ProcessName = "cpu"
+
+* Option B: This is for if you just have the PID; it will get the name for you
+#$ProcessPID = "6860"
+
+#$ProcessName = (Get-Process -Id $ProcessPID).Name
+$CpuCores = (Get-WMIObject Win32_ComputerSystem).NumberOfLogicalProcessors
+$Samples = (Get-Counter "\Process($Processname*)\% Processor Time").CounterSamples
+$Samples | Select `
+InstanceName,
+@{Name="CPU %";Expression={[Decimal]::Round(($_.CookedValue / $CpuCores), 2)}}
 
 
 #############################################################
-# Find module
-# 
-Find-Module Azure*
-Get-InstalledModule PSDesiredStateConfiguration
-Get-InstalledModule PSDesiredStateConfiguration | select *
-$env:PSModulePath -split ';' | Get-ChildItem -ea 0 | where {$_.FullName -like '*PSDesiredStateConfiguration*'} | select -first 2 FullName, Attributes, CreationTime, LastAccessTime, LastWriteTime, Mode, LinkTarget
-Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recurse
+# Get Process Owner
+
+Get-Process pwsh* -IncludeUserName| select UserName,NPM,PM,WS,CPU,ID,Si,ProcessName | ft -auto
+
+Invoke-CimMethod -InputObject (Get-CimInstance Win32_Process -Filter "name like 'notepad%'") -MethodName GetOwner
+Invoke-CimMethod -InputObject (gcim -query "select * from Win32_Process where name like 'pwsh%exe'" | select -first 1) -MethodName GetOwner 
+([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get().GetOwner().user
+
+
+#############################################################
+# expand object properties + where +format-table
+
+PS C:\Users\alexe> ([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select -expand Properties | ? Name -like '*User*' | ft
+Name              Value   Type IsLocal IsArray Origin      Qualifiers
+----              -----   ---- ------- ------- ------      ----------
+UserModeTime 1558281250 UInt64    True   False CIM_Process {CIMTYPE}
+UserModeTime   11093750 UInt64    True   False CIM_Process {CIMTYPE}
+
+
+#################
+# custom format data
+# Export
+Get-FormatData -TypeName System.Diagnostics.Process | Export-FormatData -Path C:\home\src\Format\Process.Format.ps1xml
+
+# create
+# https://jdhitsolutions.com/blog/powershell/7774/easy-powershell-custom-formatting/
+# copied from the above html file:  C:\home\src\Format\wsprocess.format.ps1xml
+
+Update-FormatData C:\home\src\Format\wsprocess.format.ps1xml
+Get-Process | Where-Object WS -ge 100MB | Format-Table -View ws
+
+#################################
+# Calculatable Columns
+# https://jdhitsolutions.com/blog/powershell/7774/easy-powershell-custom-formatting/
+
+
+$props = @( "Handles",
+    @{Name = "NPM(K)"; Expression = { [int]($_.npm / 1kb) } },
+    @{Name = "PM(K)"; Expression = { [int]($_.pm / 1kb) } },
+    @{Name = "WS(M)"; Expression = { if ($_.ws -ge 500MB) { "$([char]0x1b)[91m$([int]($_.ws/1mb))$([char]0x1b)[0m" } elseif ($_.ws -ge 250MB) { "$([char]0x1b)[93m$([int]($_.ws/1mb))$([char]0x1b)[0m" } else { [int]($_.ws / 1mb) } } },
+    @{Name = "CPU"; Expression = { New-TimeSpan -Seconds $_.cpu } },
+    "ID",
+    @{Name = "ProcessName"; Expression = { if ($_.ws -ge 500MB) { "$([char]0x1b)[1;91m$($_.processname)$([char]0x1b)[0m" } elseif ($_.ws -ge 250MB) { "$([char]0x1b)[1;93m$($_.processname)$([char]0x1b)[0m" } else { $_.processname } } }
+)
+
+Get-Process | Where-Object WS -ge 100MB | Format-Table -Property $props -AutoSize
+
+
+$props = @( "Handles",
+    @{Name = "NPM(K)"; Expression = { [int]($_.npm / 1kb) } },
+    @{Name = "PM(K)"; Expression = { [int]($_.pm / 1kb) } },
+    @{Name = "WS(M)"; Expression = { if ($_.ws -ge 500MB) { "$([char]0x1b)[91m$([int]($_.ws/1mb))$([char]0x1b)[0m" } elseif ($_.ws -ge 250MB) { "$([char]0x1b)[93m$([int]($_.ws/1mb))$([char]0x1b)[0m" } else { [int]($_.ws / 1mb) } } },
+    @{Name = "CPU"; Expression = { New-TimeSpan -Seconds $_.cpu } },
+	@{Name = "RunTime"; Expression = { ((Get-Date) - $_.starttime).ToString("d\d\ hh\:mm\:ss") } }, 
+	"UserName","ID",
+    @{Name = "ProcessName"; Expression = {if ($_.ws -ge 500MB) { "$([char]0x1b)[1;91m$($_.processname)$([char]0x1b)[0m" } elseif ($_.ws -ge 250MB) { "$([char]0x1b)[1;93m$($_.processname)$([char]0x1b)[0m" } else { $_.processname } } }
+)
+# TimeSpan format: ("dd' days 'hh' hours 'mm' minutes 'ss' seconds'")
+# "{0:dd}d:{0:hh}h:{0:mm}m:{0:ss}s" -f $up
+Get-Process -IncludeUserName | Format-Table -Property $props -AutoSize
+
+#####################################
+# Get SHA1/MD5 hash of a file
+
+Get-FileHash -Algorithm SHA1 file.txt
+Get-FileHash -Algorithm MD5 file.txt
+
+
+#############################################################
+# Group process names and report memory
+# get-process is gps
+get-process | Group-Object name, {[int]($_.WorkingSet / 1MB)} -NoElement | sort name
+gps | Group-Object {[int]($_.WorkingSet / 1MB)},name -NoElement | sort name
+
+#############################################################
+# Get cmdlets by using a parameter name and type
+#  
+Get-Command -ParameterName *Auth* -ParameterType AuthenticationMechanism | format-table Name, Definition
+
+#############################################################
+# Get a GUI interface for any PowerShell cmdlet
+Show-Command Get-Something
+
+#############################################################
+# List all PowerShell profile script settings. You will see different values for different hosts, such as the PowerShell ISE, as well as between Windows PowerShell and PowerShell 7.
+#
+$profile | select *host* | format-list
+
+#############################################################
+# Show what PowerShell profile scripts exist.
+#
+($profile.psobject.properties).where({$_.name -ne 'length'}).where({Test-Path $_.value }) | Select-Object Name,Value
+
+#############################################################
+# Get the current date and time formatted as UTC time.
+#
+(get-date).ToUniversalTime()
+# or pretty it up
+"$((get-date).ToUniversalTime()) UTC"
+"$((Get-Date).ToUniversalTime().tolongdatestring()) UTC"
+
+#############################################################
+# Get a formatted report of all commands with a synopsis.
+#
+(Get-Command).where({ $_.source -match "Wdac"}) | Sort-Object Source, CommandType, Name | Format-Table -AutoSize -GroupBy Source -Property CommandType, Name, 
+    @{Name = "Synopsis"; Width=100; Expression = {(Get-Help $_.name).Synopsis  -replace "`r",'' -replace "`n",'' -replace '\s+',' '}} #  -replace '(?<=.{100}).+' 
+
+(Get-Command).where({ $_.source }) | Format-Table -AutoSize -Property Source, CommandType, @{Name="Synopsis";Width=100;Expression={(Get-Help $_.name).Synopsis  -replace "[`r`n]",'' -replace '\s+',' '}} > all_commands.txt
+
+#############################################################
+# How long has your PowerShell session been running?
+#
+(Get-Date) - (get-process -id $pid).starttime
 
 
 #########################################################
@@ -632,13 +956,111 @@ Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recu
 Get-Date -format "MM_dd_yyyy-HH_MM_ss"
 04_28_2022-01_04_11
 
+#####################################################################
+# Find IP Search IP | Get-WhoIs
+# This command will retrieve WhoIs information from the ARIN database for a given IPv4 address.
+# https://github.com/jdhitsolutions/PSScriptTools/
+
+PS C:\Users\alexe> Get-WhoIs 208.67.222.222 | Format-List
+
+IP                     : 208.67.222.222
+Name                   : OPENDNS-NET-1
+RegisteredOrganization : Cisco OpenDNS, LLC
+City                   : San Francisco
+StartAddress           : 208.67.216.0
+EndAddress             : 208.67.223.255
+NetBlocks              : 208.67.216.0/21
+Updated                : 12/14/2021 8:28:33 PM
+
 
 #############################################################
-# Find file
+# Find file | Search File
 # 
 Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recurse
 Get-ChildItem C:\ 'PSDesiredStateConfiguration*' -Recurse -ea 0
 Get-ChildItem C:\ 'PsGetSid*' -Recurse -ea 0
+
+
+####################################################################
+# Get files last modified within a certain interval. The default is 24 hours.
+# https://github.com/jdhitsolutions/PSScriptTools/
+
+Get-LastModifiedFile * C:\home\src\Scripts\ -IntervalCount 600 | Sort LastWriteTime | Select -last 15  # Last 15 files changed within last 600 hours sorted by LastWriteTime
+
+Get-LastModifiedFile *txt C:\home -Recurse -Interval Minutes -IntervalCount 60 # txt files in C:\home folders changed within last 60 minutes
+Get-LastModifiedFile -Path C:\home -Recurse                                    # all files in C:\home folders changed within last 24 hours
+
+
+##############################################
+# Search String in Files
+
+Get-LastModifiedFile * C:\home\src\Scripts\ -IntervalCount 600 | Sort LastWriteTime | Select -last 15 | Select-String Get-XmlEvent # Search "Get-XmlEvent" in the all recently changed files of folder "C:\home\src\Scripts\"
+
+
+#############################################################
+# Get-FileExtensionInfo
+# This command will search a given directory and produce a report of all files based on their file extension.
+# This command is only available in PowerShell 7. The extension with the largest total size will be highlighted
+# See usage snapshots in C:\home\data\Reports\Get-FolderSizeInfo.txt
+
+PS C:\Users\alexe> Get-FileExtensionInfo c:\home -Recurse | Sort  -desc TotalSize | Select -First 20
+
+   Path: C:\home [WIN11-2]
+
+Extension Count  TotalSize   Smallest      Average    Largest
+--------- -----  ---------   --------      -------    -------
+.iso          1 5567117312 5567117312   5567117312 5567117312
+.jpg       1196 1983144134       7001   1658147.27    5711709
+.exe       1098 1314694900       8704   1197354.19  232862640
+.zip          7 1057575511       5218 151082215.86 1055212792
+.dll       2216 1018870740       3584    459779.21   75001920
+.lib       1852  958203934       1350    517388.73   86076926
+.xlsx        60  681243531       9811  11354058.85   21282057
+.mov        193  548696001     516429   2842984.46   12639985
+.mp4          5  382669122   10276852   76533824.4  294438279
+.h         3754  299209418        113     79704.16    9440135
+.png        512  296160447         88    578438.37   27602064
+.txt        516  283366556          4    549159.99   54443364
+.msi         20  276521472     376832   13826073.6   78991360
+.heic       136  213975020     794041   1573345.74    2657677
+.xml       1141  202365791          0    177358.27   21034773
+.pcapng       1  102317928  102317928    102317928  102317928
+.eml         72   98968170      11353   1374557.92   21733794
+.log          8   89159539          0  11144942.38   31117852
+.PML          2   68991032   17780724     34495516   51210308
+.js         208   62454062         72    300259.91   10759020
+
+
+PS C:\Users\alexe> Get-FileExtensionInfo c:\home -Recurse | Sort Count -desc | Select -first 20
+
+###################################################
+# Get-FolderSizeInfo
+# Use this command to quickly get the size of a folder. You also have an option to include hidden files. The command will measure all files in all subdirectories.
+# The command includes a format file with an additional view to display the total size in KB, MB, GB, or TB.
+# See usage snapshots in C:\home\data\Reports\Get-FolderSizeInfo.txt
+
+PS C:\Users\alexe> Get-FolderSizeInfo  c:\home -Hidden
+Computername    Path                                                TotalFiles     TotalSize
+------------    ----                                                ----------     ---------
+WIN11-2         C:\home                                                  23430   16001729959
+
+PS C:\Users\alexe> Get-ChildItem C:\ -Directory | Get-FolderSizeInfo -Hidden | Where-Object TotalSize -gt 1gb | Sort-Object TotalSize -Descending | Format-Table -View gb
+PS C:\Users\alexe> Get-ChildItem C:\Users\,C:\home  -Directory | Get-FolderSizeInfo -Hidden | Where-Object TotalSize -gt 1mb | Sort-Object TotalSize -Descending | Format-Table -View mb
+
+Computername    Path                                                TotalFiles   TotalSizeMB
+------------    ----                                                ----------   -----------
+WIN11-2         C:\Users\alexe                                          150091    52576.7876
+WIN11-2         C:\home\distro                                               7     5632.7331
+WIN11-2         C:\Users\admin                                              15     4121.7354
+WIN11-2         C:\home\apps                                             20665     3981.7836
+WIN11-2         C:\home\archive                                           1712     3787.8696
+WIN11-2         C:\home\crypto                                             709     1185.3026
+WIN11-2         C:\Users\kirae                                            3422       530.684
+WIN11-2         C:\home\txt                                                105      415.6121
+WIN11-2         C:\home\data                                                 6      170.8541
+WIN11-2         C:\home\tmp                                                  7       85.0172
+WIN11-2         C:\Users\DefaultAppPool                                     60        2.6273
+WIN11-2         C:\home\src                                                207        1.2347
 
 #############################################################
 # Find files created during last 60 days, aka newer than 60 days 
@@ -648,13 +1070,12 @@ $path = "Y:"
 Get-ChildItem -Path $path -Recurse -Force | Where-Object { !$_.PSIsContainer -and $_.CreationTime -gt $limit }
 
 #############################################################
-# Find files accessed during last 60 dayss
+# Find files accessed during last 60 days
 # 
 $limit = (Get-Date).AddDays(-60)
 $path = "Y:\"
 # LastAccessTime # LastWriteTime
 Get-ChildItem -Path $path -Recurse -Force | Where-Object { !$_.PSIsContainer -and $_.LastAccessTime -gt $limit }
-
 
 #############################################################
 # Delete files and empty folders older than 150 days
@@ -666,92 +1087,109 @@ Get-ChildItem -Path $path -Recurse -Force | Where-Object { !$_.PSIsContainer -an
 # Delete any empty directories left behind after deleting the old files.
 Get-ChildItem -Path $path -Recurse -Force | Where-Object { $_.PSIsContainer -and (Get-ChildItem -Path $_.FullName -Recurse -Force | Where-Object { !$_.PSIsContainer }) -eq $null } | Remove-Item -Force -Recurse -WhatIf
 
-#############################################################
-# Get Event by RecID and Proiders
-# Get-EventRecId <RecId>,<Providers>
-# 
-function Get-EventRecId {
-    Param($RecId=11035, $Providers=('Service Control Manager'))
-    $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Providers -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $eTot=$EVENTS.Count
-    "RecID: $RecId; Providers:$($Providers -join('; ')); Total: $eTot Event$(($eTot -ne 1)?'s':'') "
-    if ($eTot) {
-        foreach ($E in $EVENTS) {
-            $pad=1;$eNo++; $E.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n") |
-            % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }
-        }
-        "RecID: $RecId; Providers:$Providers; Total: $eNo Event$(($eNo -ne 1)?'s':'') "
-    }
-}
+############################################################################
+# Find all empty sub-folders under C:\Work and pipe them to Remove-Item. This is one way to remove empty folders. 
+# The example is piping objects to ForEach-Object so that Remove-Item can use the -LiteralPath parameter, because there may be a non-standard pathes like C:\work\[data]
+# Test-EmptyFolder
+Get-ChildItem c:\work -Directory | Test-EmptyFolder -passthru | Where-Object {$_.IsEmpty} | Foreach-Object { Remove-Item -LiteralPath $_.path -Recurse -force -whatif}
+
+
+#########################################################
+# Get-DirectoryInfo
+# https://github.com/jdhitsolutions/PSScriptTools/
+PS C:\Users\alexe> Get-DirectoryInfo ../
+
+   Path: C:\Users
+
+admin [0]            alexe [9]            DefaultAppPool [0]   kirae [0]           molant [0]
+
+#########################################################
+# Get-DirectoryInfo
+# Get-FormatView
+# PowerShell's formatting system includes a number of custom views that display objects in different ways. 
+# Unfortunately, this information is not readily available to a typical PowerShell user. This command displays the available views for a given object type.
+
+PS C:\Users\alexe> Get-FormatView *process
+
+   Type: Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Process
+
+Format    Name
+------    ----
+Table     Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Proc…
+Table     Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Proc…
+Table     Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Proc…
+
+   Type: System.Diagnostics.Process
+
+Format    Name
+------    ----
+Table     process
+Table     Priority
+Table     StartTime
+Wide      process
+Table     process
+Wide      process
+Table     process
+Wide      process
+Table     WS
+
 
 #############################################################
-# UserName
+# Find Command | Search Command
 # 
-$env:UserName
+Find-Command -Name Get-NetView | ft -auto *
+(Find-Command -Name Get-NetView).Version
 
 #############################################################
-# ComputerName
-# 
-$env:ComputerName
+# Find Command in PSModulePath
+$env:PSModulePath -split ';' | Get-ChildItem -ea 0 | where {$_.FullName -like '*PSDesiredStateConfiguration*'} | select -first 2 FullName, Attributes, CreationTime, LastAccessTime, LastWriteTime, Mode, LinkTarget
+Get-ChildItem ($env:PSModulePath -split ';') 'PSDesiredStateConfiguration' -Recurse
+
+#######################################################################
+# Find Command in PATH like where.exe command. 
+# You can search with a simple or regex pattern.
+PS C:\Users\alexe> Get-FileItem ps-info.ps1
+C:\home\src\Scripts\ps-info.ps1
+$pat='*info*'; cmd='Get-FileItem'; "`nSearch for matching executables`nCmd : {0}`nPattern : {1}`nPATH : {2}`n" -f $cmd,$pat,$env:PATH; $Found=Get-FileItem $pat; $Found; echo "`nFound $($Found.Length) Items`n"
+
 
 #############################################################
-# 32/64 bit
+# Find Module Search Module 
+# Find Commands and Modules by Verbs
+# https://docs.microsoft.com/en-us/powershell/scripting/samples/using-format-commands-to-change-output-view?view=powershell-7.2
+Get-Command -Verb Format -Module Microsoft.PowerShell.Utility
+Get-Command -Verb Format | Format-Table -Wrap -AutoSize CommandType, Name, Source, @{n='Definition';e={$_.Definition -replace("`n","") }}
+
+#############################################################
+# Find module
+
+Find-Module Azure*
+Get-InstalledModule PSDesiredStateConfiguration
+Get-InstalledModule PSDesiredStateConfiguration | select *
+
+
+#############################################################
+# Install/Unistall module
 # 
-[Environment]::Is64BitProcess
+Install-Module -Name PSDesiredStateConfiguration -AllowPrerelease
+Uninstall-Module -Name PSDesiredStateConfiguration
+
+#############################################################
+# Copy a function to a remote computer using a PSSession.
+#
+$f = $(get-item function:\Get-Foo).scriptblock
+Invoke-Command { New-Item -Name Get-Foo -Path Function: -Value $($using:f)} -session $s
 
 #############################################################
 # PowerShell Version
 # 
 $PSVersionTable.PSVersion
-
-
-#############################################################
-# Print HashTable or Dictoionary
-# 
-"HashTable[$($HashTable.Count)]: $($HashTable.Keys| ForEach-Object { "$_=$($HashTable.$_ -join ',')" })"
-"PSBoundParameters[$($PSBoundParameters.Count)]: $($PSBoundParameters.Keys| ForEach-Object { "[$_]='$($PSBoundParameters.$_)'" })"
-[string[]] $l_array = ($PSBoundParameters | Out-String -Stream) -ne '' | select-object -Skip 2; write-output "PSBoundParameters[$(($l_array).Length)]: $($l_array -join '; ')"
-
-
-#############################################################
-# Print Array
-# 
-"args[$(($args).Length)]: $($args -join '; ')""args[$(($args).Length)]: $($args -join '; ')"
-
-
-#############################################################
-# Convert to XML
-# 
-( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Xml -As "String" -Depth 3
-
-Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0 | % {$_.ToXml() -replace("><",">`n<")}
-    
-$RecId=11035; $Prvds=('Service Control Manager'); $eNo=0; $EVENTS=Get-WinEvent -ProviderName $Prvds -FilterXPath "*[System[EventRecordID=$RecId]]" -maxevent 100 -ea 0; $EVENTS | % {$pad=1;$eNo++; $_.ToXml() -replace("><",">`n<") -replace("^<Event","<Event #$eNo of $(($EVENTS).Count)") -split("`n")} |
-  % { $str=$_; if($str -match "^</.*>") {$pad-=2} ; "{0,$pad}{1}" -f "","$str"; if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>")) {$pad+=2} }; "Total: $eNo Event$(($eNo -ne 1)?'s':'') "
-
-
-#############################################################
-# Convert to Json
-# 
-( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json 
-( Get-WinEvent -ProviderName 'Service Control Manager' -FilterXPath "*[System[EventRecordID=11035]]" -maxevent 2 -ea 0) | ConvertTo-Json -Compress
-
-
-#############################################################
-# Enable execution of scripts
-# Error: "execution of scripts is disabled on this system."
-#
-# https://stackoverflow.com/questions/4037939/powershell-says-execution-of-scripts-is-disabled-on-this-system
-
-# As an Administrator, you can set the execution policy by typing this into your PowerShell window:
-Set-ExecutionPolicy RemoteSigned
-# You can bypass this policy for a single file by adding -ExecutionPolicy Bypass when running PowerShell
-powershell -ExecutionPolicy Bypass -File script.ps1
-
+Get-PowerShellEngine -Detail
+Get-PSLocation
 
 ################################################################
 # Provider Drives
 #
-
 PS C:\home\src\Scripts>  Get-PSDrive
 
 Name           Used (GB)     Free (GB) Provider      Root                                                                                                                                                                                 CurrentLocation
@@ -774,10 +1212,20 @@ Y                1056.32        773.50 FileSystem    \\WDMyCloudEX4\v3-data
 Z                1769.24         60.58 FileSystem    \\WDMyCloudEX4\v4-data
 
 
+##########################
+##########################
+##########################
+######             #######
+######  Registry   #######
+######             #######
+##########################
+##########################
+##########################
+
+
 #################################################################
 # Registry Value Entries
 #
-
 $RegistryPath = 'HKCU:\Software\CommunityBlog\Scripts'
 $Name         = 'Version'
 $Value        = '42'
@@ -793,22 +1241,754 @@ $RegistryPath = 'HKCU:\Software\CommunityBlog\Scripts'
 $Name         = 'Version'
 $Value        = '42'
 # Create the key if it does not exist
-If (-NOT (Test-Path $RegistryPath)) {
-  New-Item -Path $RegistryPath -Force | Out-Null
-}  
+If (-NOT (Test-Path $RegistryPath)) { New-Item -Path $RegistryPath -Force | Out-Null }  
 # Now set the value
 New-ItemProperty -Path $RegistryPath -Name $Name -Value $Value -PropertyType DWORD -Force
 
+# add some value
+$null = New-ItemProperty -path HKCU:\Software\tq84 -name someValue -value 99
 
-##############################################################
-# NIC
+
+##########################
+##########################
+##########################
+######             #######
+######  Variables  #######
+######             #######
+##########################
+##########################
+##########################
+
+###############################################################
+# Find Variable Search Variable 
+Get-ChildItem -Path Variable: |? Name -like Test*
+
+
+##############################
+##############################
+######                 #######
+######  ScriptBlocks   #######
+######                 #######
+##############################
+##############################
+
+
+#############################################################################
+# Create Script Block
+# Create Script Block for Where-Object condition
+  param([int[]]$Levels)
+  if($PSBoundParameters.ContainsKey("Levels")) { $FilterArray+='$_.Level -in $Levels' }
+  $FilterString=$FilterArray -join ' -and '
+  $FilterBlock=[scriptblock]::Create($FilterString)
+  Get-WinEvent * -maxevent $NoOfEvents -ea 0 | Where-Object $FilterBlock | Group-Object LogName,ProviderName,Level | Sort-Object -Descending Count	
+
 #############################################################
+# Get the scriptblock content of a loaded function. Substitute the name of a function.
+#
+(get-item Function:\prompt).scriptblock
+
+ 
+ 
+###########################################
+# scriptblock variable expanding
+$var='RemoteAddress_MAP'
+$SB=[scriptblock]::Create("`$(`$global:$var.Keys)[0].GetType()")
+& $SB # or $SB.Invoke()
+### ---
+$var=$global:RemoteAddress_MAP; $($var.Keys)[0].GetType()
+
+##############################
+##############################
+######                 #######
+######     Arrays      #######
+######                 #######
+##############################
+##############################
+
+#############################################################
+# Print Array
+"args[$(($args).Length)]: $($args -join '; ')""args[$(($args).Length)]: $($args -join '; ')"
+
+
+
+##############################
+##############################
+######                 #######
+######   HashTables    #######
+######                 #######
+##############################
+##############################
+
+@{i1=1; i2=2; ht1={k1=11;k2=12};group=@(@{k1=11;k2=12},@{k1=1; k2=2})} | where-object {$_.i2 -eq 2 }
+@{i1=1; i2=2; ht1={k1=11;k2=12};group=@(@{k1=11;k2=12},@{k1=1; k2=2})} | where-object { $g=$_.group; $g.k1 -eq 1 }
+
+
+#############################################################
+# Print HashTable element
+# https://stackoverflow.com/questions/57594415/powershell-hashtable-show-first-key
+
+You can access the Key/ValueCollection inside the hashtable:
+$Weekdays = @{Monday = 'Montag';Tuesday = 'Dienstag'}    
+echo $($Weekdays.Keys)[0]
+echo $($Weekdays.Values)[1] 
+
+function get-connection-map ([switch] $Get) {
+	if( $Get -or !$global:Connection.Length ) { $global:Connection=Get-NetTCPConnection -State Listen,Established -AppliedSetting Internet -ea 0 }
+	$ConnCnt=0; $Global:RemoteAddrMAP=@{}; $Global:ConnPidMAP=@{}; $Global:ConnInfo=@()
+	Foreach($Conn in $Connection ) {
+		
+		[string]$OwningPid=$Conn.OwningProcess; [string]$rAddr=$Conn.RemoteAddress; [string]$rPort=$Conn.RemotePort; [string]$lPort=$Conn.LocalPort
+		
+		$Info=@{ Pid=[string]$C.OwningProcess; LocalPort=[string]$C.LocalPort; RemoteAddress=[string]$C.RemoteAddress; RemotePort=[string]$Conn.RemotePort}
+		
+		if (!$Global:ConnPidMAP.ContainsKey($($Info.Pid))) { $Global:ConnPidMAP.$($Info.Pid)=@{}; $Global:ConnPidMAP.$($Info.Pid).LocalPort=@{Type='LocalPort'} }
+		if (!$Global:ConnPidMAP.$($Info.Pid).LocalPort.ContainsKey($lPort)) { $Global:ConnPidMAP.$($Info.Pid).LocalPort.$lPort=@{};  }
+		$Global:ConnPidMAP.$($Info.Pid).LocalPort.$lPort+=@{ "$rAddr`:$rPort"=$ConnCnt}
+		
+		if ( $Conn.AppliedSetting -eq 'Internet' -and $rAddr -notin '0.0.0.0','127.0.0.1','::' ) {
+			if (!$Global:RemoteAddrMAP.ContainsKey($rAddr)) { 
+				$Global:RemoteAddrMAP.$rAddr=@{}; $Global:RemoteAddrMAP.$rAddr.RemotePort=@{}; $Global:RemoteAddrMAP.$rAddr.OwningPid=@{}; $Global:RemoteAddrMAP.$rAddr.Conn=@()
+			}
+	# Port: Port.$RemotePort.$OwningProcess=@Conn
+			if (!$Global:RemoteAddrMAP.$rAddr.RemotePort.ContainsKey($rPort)) { $Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort=@{} }
+			if (!$Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.ContainsKey($($Info.Pid))) { $Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid)=@{Type='OwningPid'};  }
+			if (!$Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid).ContainsKey($lPort)) { $Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid).$lPort=@{Type='LocalPort';Conn=@()};  }
+			$Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid).$lPort.Conn+=@($ConnCnt)
+			
+	# PID: PID.$OwningProcess.$LocalPort=@RemotePort
+			if (!$Global:RemoteAddrMAP.$rAddr.OwningPid.ContainsKey($($Info.Pid))) { $Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid)=@{ LocalPort=@(); RepotePort=@(); Conn=@()} }
+			$Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid).LocalPort+=@($lPort)
+			$Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid).RepotePort+=@($rPort)
+			$Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid).Conn+=@($ConnCnt)
+
+	# Conn: Conn=@Conn
+			$Global:RemoteAddrMAP.$rAddr.Conn+=@($ConnCnt)
+			$Info+=@{Type='Internet'}
+		}
+		$Global:ConnInfo+=@( $Info )
+		$ConnCnt++
+		# if ($ConnCnt -gt 1) {break}
+	}
+	'[get-connection-map] $Global:Connection[{0}], $Global:ConnInfo[{0}]; Hashtable: $Global:ConnPidMAP[{1}], $Global:RemoteAddrMAP[{2}]. Use ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5' -f `
+	   $Global:Connection.Length,@($Global:ConnPidMAP.Keys).Length,@($Global:RemoteAddrMAP.Keys).Length
+# @($Global:RemoteAddrMAP.Keys)[0] | % { $k=$_; '"RemoteAddr":"{0}"' -f $k; ConvertTo-JSON $Global:RemoteAddrMAP.$k  -Compress -Depth 5 }
+# ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5
+}
+
+@($Global:RemoteAddrMAP.Keys)[0] | % { $k=$_; '"RemoteAddr":"{0}"' -f $k; ConvertTo-JSON $Global:RemoteAddrMAP.$k  -Compress -Depth 5 }
+
+ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5
+
+get-connection-map -get; $Global:ConnInfo | ConvertHashtableTo-Object | ft -auto 
+
+
+##################################
+# ConvertHashtableTo-Object
+function ConvertHashtableTo-Object {
+	# https://gordon.byers.me/powershell/convert-a-powershell-hashtable-to-object
+	# Better alternatives: 
+	# $Global:ConnInfo[0..1] |% {[pscustomobject] $_} | ft  -auto 
+	# $Global:ConnInfo[0..1] | ConvertTo-JSON -depth 3 -compress
+	
+    [CmdletBinding()]
+    Param([Parameter(Mandatory=$True,ValueFromPipeline=$True,ValueFromPipelinebyPropertyName=$True)]
+        [hashtable]$ht
+    )
+    PROCESS {
+        $results = @()
+        $ht | %{
+            $result = New-Object psobject;
+            foreach ($key in $_.keys) {
+				[object] $val=$_[$key]
+				if ( $val -is [hashtable]) {
+					$val=ConvertHashtableTo-Object $val
+				} elseif ($val -is [array] ) {
+					$val=$val -join (',')
+				} 
+                $result | Add-Member -MemberType NoteProperty -Name $key -Value $val
+             }
+             $results += $result;
+         }
+        return $results
+    }
+}
+
+#############################################################
+# Print HashTable or Dictionary
+"PSBoundParameters[$($PSBoundParameters.Count)]: $($PSBoundParameters.Keys| ForEach-Object { "[$_]='$($PSBoundParameters.$_)'" })"
+[string[]] $l_array = ($PSBoundParameters | Out-String -Stream) -ne '' | select-object -Skip 2; write-output "PSBoundParameters[$(($l_array).Length)]: $($l_array -join '; ')"
+
+
+
+##########################
+##########################
+##########################
+######             #######
+###### Environment #######
+######             #######
+##########################
+##########################
+##########################
+
+####################################
+# Environment Variables
+https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_environment_variables?view=powershell-7.2
+
+
+####################################
+# Environment Provider
+https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_environment_provider?view=powershell-7.2
+PS C:\Users\alexe> Get-PSDrive Env
+Name           Used (GB)     Free (GB) Provider      Root                                                                                                                                                                                                                                                                                                                                                                                                                                                  CurrentLocation
+----           ---------     --------- --------      ----                                                                                                                                                                                                                                                                                                                                                                                                                                                  ---------------
+Env                                    Environment
+
+######################################
+# .Net System.Environment 
+# https://docs.microsoft.com/en-us/dotnet/api/system.environment?view=net-6.0
+# Properties
+([Environment].GetMembers()) | ? MemberType -eq Property | select Name
+
+$envVar=([Environment].GetMembers()) | ? MemberType -eq Property | sort -top 200 | %{
+ $Name=$_.name;
+ $Val=$(Invoke-Expression "[Environment]::get_$name()")
+ $Lines=($val -replace("`r","") -replace(" +",' ')) -split("`n")
+ [pscustomobject] @{ 
+   Name=$Name
+   Type=$Val.GetType()
+   Val=$Lines[0]
+   Lines=$Lines
+   FullValue=$Val
+ } 
+}
+$envVar | select -exclude FullValue,Lines |ft -auto
+
+	
+[Environment]::CommandLine
+[Environment]::ProcessId
+[Environment]::UserName
+[Environment]::StackTrace # .Net Stack
+[Environment]::CurrentDirectory
+[Environment]::Is64BitOperatingSystem
+[Environment]::Is64BitProcess
+[Environment]::MachineName 	
+[Environment]::NewLine 	
+[Environment]::OSVersion 	
+[Environment]::ProcessId 	
+[Environment]::ProcessorCount 	
+[Environment]::ProcessPath 
+[Environment]::Version  # .Net Version
+
+##########
+# .Net Methods
+([Environment].GetMembers()) | ? MemberType -eq Method | select Name
+
+#########################################
+# The System.Environment class provides the GetEnvironmentVariable and SetEnvironmentVariable methods to get and modify environment variables.
+[Environment]::SetEnvironmentVariable('Foo','Bar')
+[Environment]::GetEnvironmentVariable('Foo')
+
+
+#############################################################
+# UserName
+# 
+$env:UserName
+
+#############################################################
+# ComputerName
+# 
+$env:ComputerName
+
+#############################################################
+# 32/64 bit
+# 
+[Environment]::Is64BitProcess
+
+###############################
+# get PATH deta
+Get-PathVariable
+
+
+
+##########################
+##########################
+##########################
+######             #######
+######    Text     #######
+######             #######
+##########################
+##########################
+##########################
+
+################
+# List Colors 
+$PSStyle
+ "$($PSStyle.Formatting.FormatAccent)eFlt$($PSStyle.Foreground.Yellow):$($PSStyle.Foreground.Cyan){0} $($PSStyle.Formatting.FormatAccent)eTop$($PSStyle.Foreground.Yellow):$($PSStyle.Foreground.Cyan){1}$($PSStyle.Reset)"  `
+   -f $($eFlt|ConvertTo-JSON -compress),$eTop
+ 
+#######################
+# Copy to clipboard : Out-Copy
+Get-Process | Sort WS -Descending | Select -first 5 | Out-Copy
+
+#######################
+# More : Out-More
+Get-<Something> | Out-More
+
+#########################
+# Colors  | https://github.com/jdhitsolutions/PSScriptTools/
+# Out-ConditionalColor (there are bugs)
+ Get-Something  | Out-ConditionalColor -PropertyConditions @{Stopped="yellow";Running="white"} -Property Status | Select -first 10
+
+###############################################
+# list all possible colors in the console
+[System.Enum]::getvalues([System.ConsoleColor])
+
+
+######################
+# colorize console
+dir -Exclude *.xml $pshome | Format-Table Mode,@{
+    Label = "Name"
+    Expression = {
+        switch ($_.Extension) { '.exe' { $color = "93"; break } '.ps1xml' { $color = '32'; break } '.dll' { $color = "35"; break } default { $color = "0" } }
+        $e = [char]27
+       "$e[${color}m$($_.Name)${e}[0m"
+    }
+ },Length
+ 
+filter colorize-row{
+    Get-Process | ? ws -ge 20MB | sort ws | Select-Object Id, Name, WS, Responding | foreach {
+        # Print 'red' row if WS greater than 100 MB
+        if($_.ws -ge 400MB){
+            [console]::ForegroundColor="white"; $_;
+        } else {
+            [console]::ForegroundColor="red"; "x"; $_;
+        }
+    }
+}
+###################################################
+# Suppress Ansi Escape Sequences 
+# Add $env:__SuppressAnsiEscapeSequences - does not work ! : https://docs.microsoft.com/en-us/powershell/scripting/whats-new/what-s-new-in-powershell-70?view=powershell-7.2
+
+$PSStyle.OutputRendering="PlainText"
+# restore Colored Output
+$PSStyle.OutputRendering="Ansi"
+
+###################################
+# Special_Character Escape Esc `e
+# Escape sequences are only interpreted when contained in double-quoted (") strings.
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_special_characters?view=powershell-7.2#escape-e
+$fgColor = 32 # green
+"`e[${fgColor}mGreen text`e[0m"
+
+################################################
+# Set the color of the progress bar with PowerShell
+$Host.PrivateData.ProgressBackgroundColor="Green" 
+$Host.PrivateData.ProgressForegroundColor="Black"
+
+
+################################################
+# escape characters in a string using regular expressions
+PS C:\home\src\Scripts> [regex]::escape('something. in here (needs) escaping')
+something\.\ in\ here\ \(needs\)\ escaping
+
+##################################################
+# Window width 
+$Host.UI.RawUI.WindowSize.Width
+
+####################################
+# PowerShell Prompt
+# https://docs.microsoft.com/en-us/powershell/module/psreadline/get-psreadlineoption?view=powershell-7.2
+Get-PSReadLineOption
+
+################################################
+# display a percentage that has two decimal places
+'{0:p2}' -f (1/10)
+
+################################################
+# Remove trailing space from a string 
+$Data="           Look at all of this wasted space on my screen. "
+$Data
+$Data.trim()
+$Data.trimstart()
+$Data.trimend()
+
+################################################
+# How to detect phone numbers using regular expressions
+$phoneornot = @('780-123-4567', '780 321 6548', 'notme', 'this is 2 num')
+$phones = [regex]::matches(($phoneornot -replace '\D', ''),'\b(\d{10})\b')
+$phones.value
+
+
+############################################
+# Format-Table -view ansi # supports only few types
+Get-<Something, eg Service> | Format-Table -view ansi
+dir C:\home\src\ -Recurse | format-table -view ansi
+
+# Format-Table -view options # supports only few types
+get-alias | format-table -view options
+ 
+
+#################################
+# Convert text to to Table 
+# 
+Get-WindowsVersion | ConvertTo-Markdown -title "OS Summary" -PreContent "## $($env:computername)" -postcontent "_Confidential_" -AsList
+Get-WindowsVersion | ConvertTo-Markdown -title "OS Summary" -PreContent "## $($env:computername)" -postcontent "_Confidential_" -AsTable
+
+
+##################################
+# add text border 
+Add-Border $env:computername
+
+##########################
+##########################
+##########################
+######             #######
+######   Shell     #######
+######             #######
+##########################
+##########################
+##########################
+
+## Command Syntax: Get-CommandSyntax
+Get-CommandSyntax Get-Item
+
+##  Help Examples : Copy-HelpExample # does not work for most of commands
+Copy-HelpExample Get-Item 
+# <WARNING: No help or examples found for Get-Item>
+Copy-HelpExample Get-Something
+
+
+## Output Format: New-PSFormatXML
+# See details in https://github.com/jdhitsolutions/PSScriptTools/
+
+# Define a custom object:
+$tname = "myThing"
+$obj = [PSCustomObject]@{
+  PSTypeName   = $tname
+  Name         = "Jeff"
+  Date         = (Get-Date)
+  Computername = $env:computername
+  OS           = (Get-CimInstance win32_operatingsystem).caption
+}
+$upParams = @{
+  TypeName = $tname
+  MemberType = "ScriptProperty"
+  MemberName = "Runtime"
+  value =  {(Get-Date) - [datetime]"1/1/2019"}
+  force = $True
+}
+Update-TypeData @upParams
+# The custom object looks like this by default:
+PS C:\> $obj
+Name         : Jeff
+Date         : 2/10/2019 8:49:10 PM
+Computername : BOVINE320
+OS           : Microsoft Windows 10 Pro
+Runtime      : 40.20:49:43.9205882
+
+# Now you can create new formatting directives.
+$tname = "myThing"
+$params = @{
+  Properties = "Name","Date","Computername","OS"
+  FormatType = "Table"
+  Path = "C:\home\src\Format\$tname.format.ps1xml"
+}
+$obj | New-PSFormatXML @params
+
+$params.Properties= "Name","OS","Runtime"
+$params.Add("Viewname","runtime")
+$params.Add("Append",$True)                # was: $params.Add(Append,$True)
+$obj | New-PSFormatXML  @params 
+
+$params.formatType = "list"
+$params.remove("Properties")
+$obj | New-PSFormatXML @params
+Update-FormatData -appendpath $params.path
+
+# And here is what the object looks like now:
+
+PS C:\> $obj
+Name Date                 Computername OS
+---- ----                 ------------ ----------------
+Jeff 2/10/2019 8:49:10 PM BOVINE320    Microsoft Windows 10 Pro
+
+PS C:\> $obj | Format-Table -View runtime
+Name OS Runtime
+---- -- -------
+Jeff    40.20:56:24.5411481
+
+PS C:\> $obj | Format-List
+Name            : Jeff
+Date            : Sunday, February 10, 2019
+Computername    : BOVINE320
+OS              : Microsoft Windows 10 Pro
+Runtime         : 40.21:12:01
+
+# Starting with v2.31.0, you can also use a hashtable to define custom properties from scriptblocks.
+
+ $p = @{
+    FormatType = "List"
+    ViewName = "run"
+    Path  = "c:\scripts\run.ps1xml"
+    Properties = "ID","Name","Path","StartTime",
+    @{Name="Runtime";Expression={(Get-Date) - $_.starttime}}
+ }
+ Get-Process -id $pid | New-PSFormatXML @p
+
+
+##########################
+##########################
+##########################
+######             #######
+###### Tracing     #######
+######             #######
+##########################
+##########################
+##########################
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/trace-command?view=powershell-7.2
+
+$tHt=@{i1=1; i2=2; ht1={k1=11;k2=12}}; $tHt
+trace-command -PSHOST -Name ParameterBinding -Expression { win-event.ps1  pvar $tht } ^C
+Get-TraceSource # trace source for the -name parameter
+
+Trace-Command -PSHOST -Name ParameterBinding -Option Method,Events,Scope <#-ListenerOption ThreadId#> -Command C:\home\src\Scripts\win-event.ps1 -ArgumentList pval,1
+
+$cmd='C:\home\src\Scripts\win-event.ps1'
+$cmd_log='C:\home\logs\trace_'+$(Split-Path $cmd -LeafBase)+'.log'
+'C:\home\logs\trace_'+$(Split-Path -Path $trace_opt.command -LeafBase)+'.log.all'
+$cmd_args=@("pval",1)
+$trace_opt=@{PSHOST=$true; Name="ParameterBinding"; Command=$cmd; Aarg=$cmd_args; File=$cmd_log; Option=("Method","Events","Scope")}
+
+# $trace_opt.file='C:\home\logs\trace_'+$(Split-Path $trace_opt.command -LeafBase)+'.log.all'
+# $trace_opt.Name='*'; $trace_opt.Option='all';
+$trace_opt; rm $trace_opt.file; Trace-Command @trace_opt; dir $trace_opt.file
+
+
+Trace-Command -PSHOST -Name ParameterBinding -Option Method,Events,Scope -Command $script -ArgumentList pval,1 -FilePath $log
+
+ 
+# Wait 1 second
+Start-Sleep -s 1
+Start-Sleep -m 1000
+
+  
+ 
+##########################
+##########################
+##########################
+######             #######
+######   Network   #######
+######             #######
+##########################
+##########################
+##########################
+
+(see output at the bottom of this file) 
+##############################################################
+
+#############################################################
+# https://www.securitylearninghub.com/#!powershell.md
+
+# Network Adapters
+# Get-NetAdapter -Includehidden
+Get-NetAdapter -Includehidden
+PS C:\Users\alexe> Get-NetAdapter -Includehidden | ft -auto
+
+Name                                  InterfaceDescription                     ifIndex Status       MacAddress        LinkSpeed
+----                                  --------------------                     ------- ------       ----------        ---------
+Local Area Connection* 5              WAN Miniport (IPv6)                           24 Up                                 0 bps
+Ethernet Kaspersky                    Kaspersky Security Data Escort Adapter        23 Disconnected 00-FF-F1-45-1B-15  100 Mbps
+Local Area Connection* 6              WAN Miniport (PPPOE)                          22 Disconnected                       0 bps
+vSwitch (NatInternal)                 Hyper-V Virtual Switch Extension Adapter      21 Up                               10 Gbps
+Local Area Connection* 1              WAN Miniport (IKEv2)                          20 Disconnected                       0 bps
+vEthernet (Default Switch)            Hyper-V Virtual Ethernet Adapter              60 Up           00-15-5D-23-EC-74   10 Gbps
+Wi-Fi                                 TP-Link Wireless MU-MIMO USB Adapter          18 Up           98-48-27-E3-58-63  520 Mbps
+Local Area Connection* 8              WAN Miniport (SSTP)                           17 Disconnected                       0 bps
+Teredo Tunneling Pseudo-Interface                                                   16 Not Present                        0 bps
+Local Area Connection* 4              WAN Miniport (IP)                             14 Up                                 0 bps
+vSwitch (ExternalSwitch)              Hyper-V Virtual Switch Extension A...#2       13 Up                               10 Gbps
+Local Area Connection* 7              WAN Miniport (PPTP)                           12 Disconnected                       0 bps
+Bluetooth Network Connection          Bluetooth Device (Personal Area Network)      11 Disconnected 00-1A-7D-B2-10-86    3 Mbps
+vSwitch (Default Switch)              Hyper-V Virtual Switch Extension A...#3       58 Up                               10 Gbps
+Local Area Connection* 2              WAN Miniport (L2TP)                           10 Disconnected                       0 bps
+Microsoft IP-HTTPS Platform Interface                                                9 Not Present                        0 bps
+Ethernet                              Intel(R) Ethernet Connection (5) I219-LM       8 Up           A4-BB-6D-D6-F4-75    1 Gbps
+Ethernet (Kernel Debugger)            Microsoft Kernel Debug Network Adapter         7 Not Present                        0 bps
+Local Area Connection* 9              Microsoft Wi-Fi Direct Virtual Adapter         6 Disconnected 9A-48-27-E3-58-63     0 bps
+Local Area Connection* 3              WAN Miniport (Network Monitor)                 5 Up                                 0 bps
+VirtualBox Host-Only Network          VirtualBox Host-Only Ethernet Adapter          4 Not Present  0A-00-27-00-00-04     0 bps
+6to4 Adapter                                                                         3 Not Present                        0 bps
+Local Area Connection* 10             Microsoft Wi-Fi Direct Virtual Ada...#2        2 Disconnected 98-48-27-E3-58-63     0 bps
+
+# List IPv4 and IPv6 addresses for all interfaces (replaces ipconfig.exe):
+# Get-NetIPAddress
+PS C:\Users\alexe> Get-NetIPAddress | ft -auto
+
+ifIndex IPAddress                   PrefixLength PrefixOrigin SuffixOrigin AddressState PolicyStore
+------- ---------                   ------------ ------------ ------------ ------------ -----------
+60      fe80::d58:1d89:448a:8df1%60           64 WellKnown    Link         Preferred    ActiveStore
+1       ::1                                  128 WellKnown    WellKnown    Preferred    ActiveStore
+23      169.254.5.69                          16 WellKnown    Link         Tentative    ActiveStore
+60      172.21.32.1                           20 Manual       Manual       Preferred    ActiveStore
+2       169.254.82.117                        16 WellKnown    Link         Tentative    ActiveStore
+6       169.254.107.88                        16 WellKnown    Link         Tentative    ActiveStore
+11      169.254.214.20                        16 WellKnown    Link         Tentative    ActiveStore
+18      192.168.1.194                         24 Dhcp         Dhcp         Preferred    ActiveStore
+1       127.0.0.1                              8 WellKnown    WellKnown    Preferred    ActiveStore
+# 
+
+# List TCP connections and TCP listening ports (replaces netstat.exe):
+Get-NetTCPConnection | ? RemoteAddress -ne '127.0.0.1' | Sort -Desc State,LocalPort
+Get-NetTCPConnection -State Listen,Established -ea 0 | ? RemoteAddress -ne '127.0.0.1' | Sort State
+Get-NetTCPConnection -State Listen,Established -AppliedSetting Internet -ea 0 | Sort State
+
+# List UDP listening ports (replaces netstat.exe):
+Get-NetUdpEndpoint
+
+# View the local route table (replaces route.exe):
+Get-Netroute
+
+# Resolve a DNS host name (replaces nslookup.exe): #This is not usually necessary.
+ Resolve-DnsName -Name $env:computername -server 127.0.0.1
+
+# View the ARP cache (replaces arp.exe):
+Get-NetNeighbor
+
+# Ping a destination IP address or host name (replaces ping.exe):
+Test-NetConnection -ComputerName $env:computername
+
+
+# Trace the IP route to a destination through a path of routers (replaces tracert.exe):
+Test-NetConnection -ComputerName $env:computername -Traceroute
+<#  WARNING: Trace route to destination fe80::d58:1d89:448a:8df1%60 did not complete. Trace terminated :: fe80::d58:1d89:448a:8df1
+	ComputerName           : WIN11-2
+	RemoteAddress          : fe80::d58:1d89:448a:8df1%60
+	InterfaceAlias         : vEthernet (Default Switch)
+	SourceAddress          : fe80::d58:1d89:448a:8df1%60
+	PingSucceeded          : True
+	PingReplyDetails (RTT) : 0 ms
+	TraceRoute             : fe80::d58:1d89:448a:8df1
+#>
+
+
+# Conduct Port Scan:
+ 1..1024 | % {echo ((new-object Net.Sockets.TcpClient).Connect("10.10.10.10",$_ )) "Port $ is open!"} 2>$null
+ 
+ 
+# Test access to a TCP port and show the governing IPSec rule (like a port scanner):
+Test-NetConnection -Computer $env:computername -Port 80 -Info detailed
+<#
+ComputerName            : WIN11-2
+RemoteAddress           : fe80::d58:1d89:448a:8df1%60
+RemotePort              : 80
+NameResolutionResults   : fe80::d58:1d89:448a:8df1%60
+                          192.168.1.194
+                          172.21.32.1
+MatchingIPsecRules      :
+NetworkIsolationContext : Internet
+InterfaceAlias          : vEthernet (Default Switch)
+SourceAddress           : fe80::d58:1d89:448a:8df1%60
+NetRoute (NextHop)      : ::
+TcpTestSucceeded        : True
+
+#>
+
+# Assign primary and secondary DNS servers to an interface with index number 38 (but don't do it now, example only):
+set-dnsclientserveraddress -InterfaceIndex 38 -serveraddresses @("10.18.1.5","10.18.1.6")
+
+# Display the connection profile (Public, Private, Domain) for each interface:
+Get-NetConnectionProfile | Format-Table InterfaceAlias,NetworkCategory
+InterfaceAlias NetworkCategory
+-------------- ---------------
+Wi-Fi                  Private
+
+# Firewall
+Get-NetFirewallProfile
+netsh advfirewall show currentprofile
+
+# Start a process from CLI with powershell:
+start-process wireshark
+
+# Sortable firewall rule list
+Get-NetFirewallRule -all | Out-GridView
+Get-NetFirewallRule -DisplayGroup Remote* -Enabled True | Out-GridView
+Get-NetFirewallRule -DisplayName Remote* | Out-GridView
 
 #####################
-# How to rename Nic
+# Create an inbound firewall rule to block access to TCP port 3666:
+# This new rule can now be seen in the graphical Windows Firewall snap-in.
+new-NetFireWallrule -displayname "Drop APT Back Door" -direction inbound –localport 3666 -protocol tcp -action block
 
+#########################
+# Delete a firewall rule by its display name:
+remove-NetFireWallrule -displayname "Drop APT Back Door"
+
+#####################
+# Routing Tables
+# netsh interface 
+
+PS C:\Users\alexe> netsh interface ipv6 show route
+PS C:\Users\alexe> netsh interface ipv4 show route
+
+######################
+## Command to delete active connections
+Net Use * /delete
+
+######################################
+# IP interfaces 
+# Get-NetIPAddress
+
+PS C:\Users\alexe> Get-NetIPAddress | ft InterfaceIndex,InterfaceAlias,AddressState,IPAddress,PrefixLength,Type
+
+PS C:\Users\alexe> Get-NetIPConfiguration | ft InterfaceIndex,InterfaceAlias,AllIPAddresses,InterfaceDescription
+
+InterfaceIndex InterfaceAlias               AllIPAddresses                             InterfaceDescription
+-------------- --------------               --------------                             --------------------
+            60 vEthernet (Default Switch)   {172.21.32.1, fe80::d58:1d89:448a:8df1%60} Hyper-V Virtual Ethernet Adapter
+            18 Wi-Fi                        {192.168.1.194}                            TP-Link Wireless MU-MIMO USB Adapter
+            23 Ethernet Kaspersky           {169.254.5.69}                             Kaspersky Security Data Escort Adapter
+            11 Bluetooth Network Connection {169.254.214.20}                           Bluetooth Device (Personal Area Network)
+
+PS C:\Users\alexe> Get-NetIPConfiguration | fl InterfaceIndex,InterfaceAlias,InterfaceDescription,DNSServer,NetProfile,IPv4DefaultGateway,IPv4Address,NetIPv4Interface,IPv6Address,IPv6LinkLocalAddress,IPv6DefaultGateway,NetIPv6Interface
+
+#####################################################
+# Get Computer's Default Internet Ip-Address
+PS C:\Users\alexe> (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | where {$_.DHCPEnabled -ne $null -and $_.DefaultIPGateway -ne $null}).IPAddress | Select-Object 
+192.168.1.194
+
+
+#########################################################
+# Get Computer's Default Internet Network Configuration
+PS C:\Users\alexe> (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | where {$_.DHCPEnabled -ne $null -and $_.DefaultIPGateway -ne $null}) | Select-Object
+DHCPEnabled      : True
+IPAddress        : {192.168.1.194}
+DefaultIPGateway : {192.168.1.1}
+DNSDomain        : alex.home
+ServiceName      : RtlWlanu
+Description      : TP-Link Wireless MU-MIMO USB Adapter
+Index            : 1
+
+
+##########################
+# Test Connection ( Ping )
+PS C:\Users\alexe> Test-Connection -ComputerName (hostname) -Count 1
+   Destination: Win11-2
+Ping Source           Address                   Latency BufferSize Status
+                                                   (ms)        (B)
+---- ------           -------                   ------- ---------- ------
+   1 Win11-2          fe80::d58:1d89:448a:8df1        0         32 Success
+
+PS C:\Users\alexe> Test-Connection -IPv4 -ComputerName (hostname) -Count 1
+   Destination: Win11-2
+Ping Source           Address                   Latency BufferSize Status
+                                                   (ms)        (B)
+---- ------           -------                   ------- ---------- ------
+   1 Win11-2          192.168.1.194                   0         32 Success
+   
+#############################################################
+# Network adapters
 PS C:\home\src\Scripts> Get-NetAdapter
-
+## 4/13
 Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
 ----                      --------------------                    ------- ------       ----------             ---------
 Ethernet Kaspersky        Kaspersky Security Data Escort Adapter       23 Disconnected 00-FF-F1-45-1B-15       100 Mbps
@@ -818,10 +1998,330 @@ Bluetooth Network Connec… Bluetooth Device (Personal Area Networ…      12 Di
 Ethernet                  Intel(R) Ethernet Connection (5) I219-…       8 Up           A4-BB-6D-D6-F4-75         1 Gbps
 VirtualBox Host-Only Net… VirtualBox Host-Only Ethernet Adapter         4 Up           0A-00-27-00-00-04         1 Gbps
 
+Get-NetAdapter -Includehidden
+PS C:\Users\alexe> Get-NetAdapter -Includehidden | ft -auto
+
+Name                                  InterfaceDescription                     ifIndex Status       MacAddress        LinkSpeed
+----                                  --------------------                     ------- ------       ----------        ---------
+Local Area Connection* 5              WAN Miniport (IPv6)                           24 Up                                 0 bps
+Ethernet Kaspersky                    Kaspersky Security Data Escort Adapter        23 Disconnected 00-FF-F1-45-1B-15  100 Mbps
+Local Area Connection* 6              WAN Miniport (PPPOE)                          22 Disconnected                       0 bps
+vSwitch (NatInternal)                 Hyper-V Virtual Switch Extension Adapter      21 Up                               10 Gbps
+Local Area Connection* 1              WAN Miniport (IKEv2)                          20 Disconnected                       0 bps
+vEthernet (Default Switch)            Hyper-V Virtual Ethernet Adapter              60 Up           00-15-5D-23-EC-74   10 Gbps
+Wi-Fi                                 TP-Link Wireless MU-MIMO USB Adapter          18 Up           98-48-27-E3-58-63  520 Mbps
+Local Area Connection* 8              WAN Miniport (SSTP)                           17 Disconnected                       0 bps
+Teredo Tunneling Pseudo-Interface                                                   16 Not Present                        0 bps
+Local Area Connection* 4              WAN Miniport (IP)                             14 Up                                 0 bps
+vSwitch (ExternalSwitch)              Hyper-V Virtual Switch Extension A...#2       13 Up                               10 Gbps
+Local Area Connection* 7              WAN Miniport (PPTP)                           12 Disconnected                       0 bps
+Bluetooth Network Connection          Bluetooth Device (Personal Area Network)      11 Disconnected 00-1A-7D-B2-10-86    3 Mbps
+vSwitch (Default Switch)              Hyper-V Virtual Switch Extension A...#3       58 Up                               10 Gbps
+Local Area Connection* 2              WAN Miniport (L2TP)                           10 Disconnected                       0 bps
+Microsoft IP-HTTPS Platform Interface                                                9 Not Present                        0 bps
+Ethernet                              Intel(R) Ethernet Connection (5) I219-LM       8 Up           A4-BB-6D-D6-F4-75    1 Gbps
+Ethernet (Kernel Debugger)            Microsoft Kernel Debug Network Adapter         7 Not Present                        0 bps
+Local Area Connection* 9              Microsoft Wi-Fi Direct Virtual Adapter         6 Disconnected 9A-48-27-E3-58-63     0 bps
+Local Area Connection* 3              WAN Miniport (Network Monitor)                 5 Up                                 0 bps
+VirtualBox Host-Only Network          VirtualBox Host-Only Ethernet Adapter          4 Not Present  0A-00-27-00-00-04     0 bps
+6to4 Adapter                                                                         3 Not Present                        0 bps
+
+####################################
+# disable - enable WAN miniport with command prompt?
+# Check :  Get-NetAdapter -Includehidden | ft -auto
+# "FriendlyName" is  Get-NetAdapter's InterfaceDescription column
+
+# enable
+Get-PnpDevice -FriendlyName 'WAN Miniport (PPPOE)' | Enable-PnpDevice -Confirm:$false
+Get-PnpDevice -FriendlyName 'WAN Miniport (IP)'    | Enable-PnpDevice -Confirm:$false
+Get-PnpDevice -FriendlyName 'AN Miniport (Network Monitor)'    | Enable-PnpDevice -Confirm:$false
+# disable
+Get-PnpDevice -FriendlyName 'WAN Miniport (PPPOE)' | Disable-PnpDevice -Confirm:$false
+Get-PnpDevice -FriendlyName 'WAN Miniport (IP)'    | Disable-PnpDevice -Confirm:$false
+Get-PnpDevice -FriendlyName 'WAN Miniport (Network Monitor)'    | Disable-PnpDevice -Confirm:$false
+
+
+###############################################################
+# NetAdapter AdvancedProperty 
+# 
+Get-NetAdapterAdvancedProperty |? DisplayValue -ne Disabled | ft -auto
+Get-NetAdapterAdvancedProperty |? Name -like vEtherne*  | ft -auto
+Get-NetAdapterBinding |? Name -like vEtherne*
+
+#########################################################
+# TCP/IPv6 Internet Protocol Version 6
+# Get-NetAdapterBinding -IncludeHidden -DisplayName '*IPv6*'
+# Get-NetAdapterBinding -IncludeHidden -ComponentID ms_tcpip6
+# Get-NetAdapterBinding -AllBindings -IncludeHidden  |? ComponentID -like ms_netbios |  Disable-NetAdapterBinding
+Get-NetAdapterBinding -IncludeHidden -ComponentID ms_tcpip6 |  Disable-NetAdapterBinding
+
+Name                           DisplayName                                        ComponentID          Enabled
+----                           -----------                                        -----------          -------
+Ethernet Kaspersky             Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            False
+vEthernet (Default Switch)     Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            True
+Wi-Fi                          Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            False
+Teredo Tunneling Pseudo-Inter… Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            True
+Bluetooth Network Connection   Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            False
+Microsoft IP-HTTPS Platform I… Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            True
+Ethernet                       Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            False
+Ethernet (Kernel Debugger)     Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            True
+Local Area Connection* 9       Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            True
+VirtualBox Host-Only Network   Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            False
+6to4 Adapter                   Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            True
+Local Area Connection* 10      Internet Protocol Version 6 (TCP/IPv6)             ms_tcpip6            True
+
+Get-NetAdapterBinding -AllBindings -IncludeHidden  |? DisplayName -like *version*6*Tunnel* | ? Enabled -like True |  Disable-NetAdapterBinding
+
+Name                           DisplayName                                        ComponentID          Enabled
+----                           -----------                                        -----------          -------
+Teredo Tunneling Pseudo-Inter… Microsoft TCP/IP version 6 - Tunnels               ms_tcpip6_tunnel     True
+Microsoft IP-HTTPS Platform I… Microsoft TCP/IP version 6 - Tunnels               ms_tcpip6_tunnel     True
+6to4 Adapter                   Microsoft TCP/IP version 6 - Tunnels               ms_tcpip6_tunnel     True
+
+
+
+##########################################
+# NetBIOS Interface
+Get-NetAdapterBinding -AllBindings -IncludeHidden  |? DisplayName -like Net*
+Name                           DisplayName                                        ComponentID          Enabled
+----                           -----------                                        -----------          -------
+Ethernet Kaspersky             NetBIOS Interface                                  ms_netbios           True
+vEthernet (Default Switch)     NetBIOS Interface                                  ms_netbios           True
+Wi-Fi                          NetBIOS Interface                                  ms_netbios           True
+Teredo Tunneling Pseudo-Inter… NetBIOS Interface                                  ms_netbios           False
+Bluetooth Network Connection   NetBIOS Interface                                  ms_netbios           True
+Microsoft IP-HTTPS Platform I… NetBIOS Interface                                  ms_netbios           False
+Ethernet                       NetBIOS Interface                                  ms_netbios           False
+Ethernet (Kernel Debugger)     NetBIOS Interface                                  ms_netbios           True
+Local Area Connection* 9       NetBIOS Interface                                  ms_netbios           True
+VirtualBox Host-Only Network   NetBIOS Interface                                  ms_netbios           True
+6to4 Adapter                   NetBIOS Interface                                  ms_netbios           False
+Local Area Connection* 10      NetBIOS Interface                                  ms_netbios           True
+
+# does not work : Get-NetAdapterBinding -IncludeHidden -ComponentID ms_netbios |  Disable-NetAdapterBinding
+Get-NetAdapterBinding -AllBindings -IncludeHidden  |? ComponentID -like ms_netbios |  Disable-NetAdapterBinding #works!
+
+
+#####################
+# Win32_NetworkAdapterConfiguration WINS configuration
+# TcpipNetbios
+
+Get-NetAdapterBinding -AllBindings -IncludeHidden  |? DisplayName -like *WINS* |? Enabled -like True  | Disable-NetAdapterBinding
+Name                           DisplayName                                        ComponentID          Enabled
+----                           -----------                                        -----------          -------
+Ethernet Kaspersky             WINS Client(TCP/IP) Protocol                       ms_netbt             True
+vEthernet (Default Switch)     WINS Client(TCP/IP) Protocol                       ms_netbt             True
+Wi-Fi                          WINS Client(TCP/IP) Protocol                       ms_netbt             True
+Wi-Fi                          @%windir%\System32\drivers\vwififlt.sys,-105       ms_vwifi             True
+Bluetooth Network Connection   WINS Client(TCP/IP) Protocol                       ms_netbt             True
+Ethernet (Kernel Debugger)     WINS Client(TCP/IP) Protocol                       ms_netbt             True
+Local Area Connection* 9       WINS Client(TCP/IP) Protocol                       ms_netbt             True
+VirtualBox Host-Only Network   WINS Client(TCP/IP) Protocol                       ms_netbt             True
+Local Area Connection* 10      WINS Client(TCP/IP) Protocol                       ms_netbt             True
+
+Get-NetAdapterBinding -AllBindings -IncludeHidden  |? DisplayName -like *WINS* |? Enabled -like True
+
+## Alternatibe search 
+Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | ft -auto DHCPEnabled,IPAddress,DefaultIPGateway,ServiceName,Description,Index,WINSPrimaryServer,IPSubnet,TcpipNetbiosOptions
+Get-WmiObject -Class Win32_NetworkAdapterConfiguration | ft -auto DHCPEnabled,IPAddress,DefaultIPGateway,ServiceName,Description,Index,WINSPrimaryServer,IPSubnet
+
+Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration  | gm | ? Name -like *BIOS*
+   TypeName: Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_NetworkAdapterConfiguration
+Name                MemberType Definition
+----                ---------- ----------
+TcpipNetbiosOptions Property   uint TcpipNetbiosOptions {get;}
+
+
+Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | ft -auto @{n='DHCP';e={$_.DHCPEnabled}},
+  @{n='IP';e={$_.IPAddress}},@{n='IPGateway';e={$_.DefaultIPGateway}},
+  ServiceName,Description,Index,IPSubnet,
+  @{n='NetBios';e={$_.TcpipNetbiosOptions}},
+  @{n='WINSLookup';e={$_.WINSEnableLMHostsLookup}},
+  @{n='DnsWinsReslv';e={$_.DNSEnabledForWINSResolution}}, 
+
+Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | ft -auto ServiceName,Description,Index,
+@{n='ifIndex';e={$_.InterfaceIndex}},
+IPEnabled, 
+@{n='IP';e={$_.IPAddress}},
+@{n='IPGateway';e={$_.DefaultIPGateway}}, 
+IPSubnet, MACAddress, 
+@{n='DHCP';e={$_.DHCPEnabled}}, DHCPServer,
+@{n='NetBios';e={$_.TcpipNetbiosOptions}},
+@{n='WINSLookup';e={$_.WINSEnableLMHostsLookup}},
+@{n='DnsWinsReslv';e={$_.DNSEnabledForWINSResolution}},
+@{n='IPFilt';e={$_.IPFilterSecurityEnabled}},DNSHostName # ,SettingID,Caption
+
+ServiceName  Description                              Index ifIndex IPEnabled IP            IPGateway   IPSubnet        MACAddress         DHCP DHCPServer  NetBios WINSLookup DnsWinsReslv IPFilt DNSHostName SettingID                              Caption
+-----------  -----------                              ----- ------- --------- --            ---------   --------        ----------         ---- ----------  ------- ---------- ------------ ------ ----------- ---------                              -------
+kdnic        Microsoft Kernel Debug Network Adapter       0       7     False                                                              True                                                                {1331124C-152D-4155-BA48-08D7ABEA8F41} [00000000] Microsoft Kernel Debug Network Adapter
+RtlWlanu     TP-Link Wireless MU-MIMO USB Adapter         1      19      True 192.168.1.194 192.168.1.1 {255.255.255.0} 98:48:27:E3:58:63  True 192.168.1.1 2       True       False        False  Win11-2     {C04946AA-8065-44AB-A9FF-9313C06B53CE} [00000001] TP-Link Wireless MU-MIMO USB Adapter
+BthPan       Bluetooth Device (Personal Area Network)     2      13     False                                           00:1A:7D:B2:10:86  True                                                                {76595E06-4F62-4F20-B4A1-9C1255D1D2F4} [00000002] Bluetooth Device (Personal Area Network)
+e1dexpress   Intel(R) Ethernet Connection (5) I219-LM     3       8     False                                           A4:BB:6D:D6:F4:75  True                                                                {1F3B6493-BE2C-4EE8-A7FD-818A8A691497} [00000003] Intel(R) Ethernet Connection (5) I219-LM
+RasSstp      WAN Miniport (SSTP)                          4      18     False                                                             False                                                                {B279DDBD-80BD-4416-A888-CEC13621047C} [00000004] WAN Miniport (SSTP)
+RasAgileVpn  WAN Miniport (IKEv2)                         5      21     False                                                             False                                                                {E06B47FE-5F48-405F-BE99-FD8325B34F62} [00000005] WAN Miniport (IKEv2)
+VMSMP        Hyper-V Virtual Switch Extension Adapter     6      30     False                                                             False                                                                {F04FAE8E-4863-4853-952C-EFAB85370F31} [00000006] Hyper-V Virtual Switch Extension Adapter
+Rasl2tp      WAN Miniport (L2TP)                          7      10     False                                                             False                                                                {3EE58823-37E3-4063-A945-D8ABC37D9577} [00000007] WAN Miniport (L2TP)
+PptpMiniport WAN Miniport (PPTP)                          8      14     False                                                             False                                                                {8069A4A4-8697-4AD2-8D70-167FB13419AA} [00000008] WAN Miniport (PPTP)
+RasPppoe     WAN Miniport (PPPOE)                         9      23     False                                                             False                                                                {EDBF876F-AC32-49B4-9256-DCC8C57710C3} [00000009] WAN Miniport (PPPOE)
+NdisWan      WAN Miniport (IP)                           10      16     False                                                             False                                                                {8C41F371-02C9-4CCC-A556-CE0F299D1126} [00000010] WAN Miniport (IP)
+NdisWan      WAN Miniport (IPv6)                         11      25     False                                           12:D2:20:52:41:53 False                                                                {FEB8D1C5-7C9F-4F3F-A4D5-8CB087406837} [00000011] WAN Miniport (IPv6)
+NdisWan      WAN Miniport (Network Monitor)              12       5     False                                                             False                                                                {0B2CD046-D559-4C77-B492-236084044098} [00000012] WAN Miniport (Network Monitor)
+vwifimp      Microsoft Wi-Fi Direct Virtual Adapter      13       6     False                                           9A:48:27:E3:58:63  True                                                                {0D21477B-6673-4CFE-A053-9600D6145231} [00000013] Microsoft Wi-Fi Direct Virtual Adapter
+vwifimp      Microsoft Wi-Fi Direct Virtual Adapter      14       2     False                                           98:48:27:E3:58:63  True                                                                {05CE20D9-1DB6-4333-8E5F-58102B102CF4} [00000014] Microsoft Wi-Fi Direct Virtual Adapter
+VMSMP        Hyper-V Virtual Switch Extension Adapter    15      22     False                                                             False                                                                {E6007A9A-B5D8-4709-A632-33BBBA3293FE} [00000015] Hyper-V Virtual Switch Extension Adapter
+VBoxNetAdp   VirtualBox Host-Only Ethernet Adapter       16       4     False                                                             False                                                                {08C463C5-16C6-4C85-AF3C-B3936AEFF418} [00000016] VirtualBox Host-Only Ethernet Adapter
+VMSMP        Hyper-V Virtual Switch Extension Adapter    18      15     False                                                             False                                                                {80B6635C-6C3F-4A63-84EC-676EB767312E} [00000018] Hyper-V Virtual Switch Extension Adapter
+kltap        Kaspersky Security Data Escort Adapter      20      24     False                                           00:FF:F1:45:1B:15  True                                                                {F1451B15-A5F5-4A0A-99FB-DE41A508832F} [00000020] Kaspersky Security Data Escort Adapter
+
+
+PS C:\Users\alexe> Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration  | select -first 1 * | % { $_ | Gm }
+
+   TypeName: Selected.Microsoft.Management.Infrastructure.CimInstance
+
+Name                         MemberType   Definition
+----                         ----------   ----------
+Equals                       Method       bool Equals(System.Object obj)
+GetHashCode                  Method       int GetHashCode()
+GetType                      Method       type GetType()
+ToString                     Method       string ToString()
+ArpAlwaysSourceRoute         NoteProperty object ArpAlwaysSourceRoute=null
+ArpUseEtherSNAP              NoteProperty object ArpUseEtherSNAP=null
+Caption                      NoteProperty string Caption=[00000000] Microsoft Kernel Debug Network Adapter
+CimClass                     NoteProperty cimclass CimClass=root/cimv2:Win32_NetworkAdapterConfiguration
+CimInstanceProperties        NoteProperty CimPropertiesCollection CimInstanceProperties=Microsoft.Management.Infrastructure.Internal.Data.CimPropertiesCollection
+CimSystemProperties          NoteProperty CimSystemProperties CimSystemProperties=Microsoft.Management.Infrastructure.CimSystemProperties
+DatabasePath                 NoteProperty object DatabasePath=null
+DeadGWDetectEnabled          NoteProperty object DeadGWDetectEnabled=null
+DefaultIPGateway             NoteProperty object DefaultIPGateway=null
+DefaultTOS                   NoteProperty object DefaultTOS=null
+DefaultTTL                   NoteProperty object DefaultTTL=null
+Description                  NoteProperty string Description=Microsoft Kernel Debug Network Adapter
+DHCPEnabled                  NoteProperty bool DHCPEnabled=True
+DHCPLeaseExpires             NoteProperty object DHCPLeaseExpires=null
+DHCPLeaseObtained            NoteProperty object DHCPLeaseObtained=null
+DHCPServer                   NoteProperty object DHCPServer=null
+DNSDomain                    NoteProperty object DNSDomain=null
+DNSDomainSuffixSearchOrder   NoteProperty object DNSDomainSuffixSearchOrder=null
+DNSEnabledForWINSResolution  NoteProperty object DNSEnabledForWINSResolution=null
+DNSHostName                  NoteProperty object DNSHostName=null
+DNSServerSearchOrder         NoteProperty object DNSServerSearchOrder=null
+DomainDNSRegistrationEnabled NoteProperty object DomainDNSRegistrationEnabled=null
+ForwardBufferMemory          NoteProperty object ForwardBufferMemory=null
+FullDNSRegistrationEnabled   NoteProperty object FullDNSRegistrationEnabled=null
+GatewayCostMetric            NoteProperty object GatewayCostMetric=null
+IGMPLevel                    NoteProperty object IGMPLevel=null
+Index                        NoteProperty uint Index=0
+InterfaceIndex               NoteProperty uint InterfaceIndex=7
+IPAddress                    NoteProperty object IPAddress=null
+IPConnectionMetric           NoteProperty object IPConnectionMetric=null
+IPEnabled                    NoteProperty bool IPEnabled=False
+IPFilterSecurityEnabled      NoteProperty object IPFilterSecurityEnabled=null
+IPPortSecurityEnabled        NoteProperty object IPPortSecurityEnabled=null
+IPSecPermitIPProtocols       NoteProperty object IPSecPermitIPProtocols=null
+IPSecPermitTCPPorts          NoteProperty object IPSecPermitTCPPorts=null
+IPSecPermitUDPPorts          NoteProperty object IPSecPermitUDPPorts=null
+IPSubnet                     NoteProperty object IPSubnet=null
+IPUseZeroBroadcast           NoteProperty object IPUseZeroBroadcast=null
+IPXAddress                   NoteProperty object IPXAddress=null
+IPXEnabled                   NoteProperty object IPXEnabled=null
+IPXFrameType                 NoteProperty object IPXFrameType=null
+IPXMediaType                 NoteProperty object IPXMediaType=null
+IPXNetworkNumber             NoteProperty object IPXNetworkNumber=null
+IPXVirtualNetNumber          NoteProperty object IPXVirtualNetNumber=null
+KeepAliveInterval            NoteProperty object KeepAliveInterval=null
+KeepAliveTime                NoteProperty object KeepAliveTime=null
+MACAddress                   NoteProperty object MACAddress=null
+MTU                          NoteProperty object MTU=null
+NumForwardPackets            NoteProperty object NumForwardPackets=null
+PMTUBHDetectEnabled          NoteProperty object PMTUBHDetectEnabled=null
+PMTUDiscoveryEnabled         NoteProperty object PMTUDiscoveryEnabled=null
+PSComputerName               NoteProperty object PSComputerName=null
+ServiceName                  NoteProperty string ServiceName=kdnic
+SettingID                    NoteProperty string SettingID={1331124C-152D-4155-BA48-08D7ABEA8F41}
+TcpipNetbiosOptions          NoteProperty object TcpipNetbiosOptions=null
+TcpMaxConnectRetransmissions NoteProperty object TcpMaxConnectRetransmissions=null
+TcpMaxDataRetransmissions    NoteProperty object TcpMaxDataRetransmissions=null
+TcpNumConnections            NoteProperty object TcpNumConnections=null
+TcpUseRFC1122UrgentPointer   NoteProperty object TcpUseRFC1122UrgentPointer=null
+TcpWindowSize                NoteProperty object TcpWindowSize=null
+WINSEnableLMHostsLookup      NoteProperty object WINSEnableLMHostsLookup=null
+WINSHostLookupFile           NoteProperty object WINSHostLookupFile=null
+WINSPrimaryServer            NoteProperty object WINSPrimaryServer=null
+WINSScopeID                  NoteProperty object WINSScopeID=null
+WINSSecondaryServer          NoteProperty object WINSSecondaryServer=null
+
+
+###############################################################################
+#  enable or disable LMHOSTS Lookup with the help of the following methods
+Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | select WINS | ft -autoGet-CimInstance -ClassName Win32_NetworkAdapterConfiguration | select WINS | ft -auto
+
+# does not work !?
+# $DisableLMHosts_Class=Get-WmiObject -list Win32_NetworkAdapterConfiguration
+# $DisableLMHosts_Class.EnableWINS($false,$false)
+
+
+#####################
+# How to rename Nic
 # Admin required
  Get-NetAdapter -InterfaceIndex 16 | Rename-NetAdapter -NewName 'Sales iSCSI VLAN' Get-NetAdapter -InterfaceIndex 16 | Rename-NetAdapter -NewName 'Sales iSCSI VLAN'
+ 
+ 
+
+##########
+# ServicePointManager
+# Having trouble installing for finding things from the PowerShell Gallery or GitHub? Add this line to your PowerShell profile script: 
+ 
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+ 
+###########################
+# Get-MyCounter is an enhanced version of Get-Counter, 
+# which is available on Windows platforms to retrieve performance counter data. 
+# One of the challenges with Get-Counter is how it formats results. 
+# Get-MyCounter takes the same information and writes a custom object to the pipeline that is easier to work with. You can pipe counters from Get-Counter to this command.
 
 
+   Computername: WIN11-2
+
+Timestamp            Category                                                    Counter                      Value
+---------            --------                                                    -------                      -----
+5/13/2022 6:36:36 PM network interface(intel[r] ethernet connection [5] i219-lm) bytes total/sec           406.4969
+5/13/2022 6:36:36 PM network interface(tp-link wireless mu-mimo usb adapter)     bytes total/sec           398.5652
+5/13/2022 6:36:36 PM processor(_total)                                           % processor time             2.004
+5/13/2022 6:36:36 PM memory                                                      % committed bytes in use   16.6526
+5/13/2022 6:36:36 PM memory                                                      cache faults/sec            0.9915
+5/13/2022 6:36:36 PM physicaldisk(_total)                                        % disk time                 0.0913
+5/13/2022 6:36:36 PM physicaldisk(_total)                                        current disk queue length        0
+
+PS C:\Users\alexe> Get-Counter -list IPV4 | Get-MyCounter
+
+   Computername: WIN11-2
+
+Timestamp            Category Counter                              Value
+---------            -------- -------                              -----
+5/13/2022 6:37:28 PM ipv4     datagrams/sec                        5.906
+5/13/2022 6:37:28 PM ipv4     datagrams received/sec              1.9687
+5/13/2022 6:37:28 PM ipv4     datagrams received header errors         0
+5/13/2022 6:37:28 PM ipv4     datagrams received address errors     7124
+5/13/2022 6:37:28 PM ipv4     datagrams forwarded/sec                  0
+5/13/2022 6:37:28 PM ipv4     datagrams received unknown protocol    727
+5/13/2022 6:37:28 PM ipv4     datagrams received discarded           340
+5/13/2022 6:37:28 PM ipv4     datagrams received delivered/sec     5.906
+5/13/2022 6:37:28 PM ipv4     datagrams sent/sec                  3.9373
+5/13/2022 6:37:28 PM ipv4     datagrams outbound discarded             7
+5/13/2022 6:37:28 PM ipv4     datagrams outbound no route              0
+5/13/2022 6:37:28 PM ipv4     fragments received/sec                   0
+5/13/2022 6:37:28 PM ipv4     fragments re-assembled/sec               0
+5/13/2022 6:37:28 PM ipv4     fragment re-assembly failures            0
+5/13/2022 6:37:28 PM ipv4     fragmented datagrams/sec                 0
+5/13/2022 6:37:28 PM ipv4     fragmentation failures                   0
+5/13/2022 6:37:28 PM ipv4     fragments created/sec                    0
+
+
+
+##########
+# The Get-HotFix cmdlet can get used to view hotfix information such as listing all installed hotfixes:
+Get-HotFix
+Get-HotFix | fl
 
 ################################################
 # How to send output to a file
@@ -977,47 +2477,16 @@ $string -replace $pattern, "."
 
 
 ################################################
-# gps
+# get-Process alias gps
 
 gps | group name | ? count -gt 1 | ft
 
 
 
 ################################################
-# display a percentage that has two decimal places
-'{0:p2}' -f (1/10)
-
-################################################
-# Remove trailing space from a string 
-$Data="           Look at all of this wasted space on my screen. "
-$Data
-$Data.trim()
-$Data.trimstart()
-$Data.trimend()
-
-################################################
-# Set the color of the progress bar with PowerShell
-$Host.PrivateData.ProgressBackgroundColor="Green" 
-$Host.PrivateData.ProgressForegroundColor="Black"
-
-################################################
 # List all available CIM classes by using 
 Get-CimClass Win32*Disk*
 
-################################################
-# escape characters in a string using regular expressions
-PS C:\home\src\Scripts> [regex]::escape('something. in here (needs) escaping')
-something\.\ in\ here\ \(needs\)\ escaping
-
-################################################
-# How to detect phone numbers using regular expressions
-$phoneornot = @('780-123-4567', '780 321 6548', 'notme', 'this is 2 num')
-$phones = [regex]::matches(($phoneornot -replace '\D', ''),'\b(\d{10})\b')
-$phones.value
-
-###############################################
-# list all possible colors in the console
-[System.Enum]::getvalues([System.ConsoleColor])
 
 ##################################
 # Find all devices connected to a computer
@@ -1091,8 +2560,474 @@ Get-VMHostAssignableDevice | Mount-VmHostAssignableDevice -Verbose
 $Drive = Get-CimInstance -ClassName Win32_Volume -Filter "DriveLetter = 'M:'"
 $Drive | Set-CimInstance -Property @{DriveLetter ='X:'}
 
+ 
+##################################################################
+# Out String 
+# Use the Width parameter to prevent truncation.
 
-#############################################################################
-# Service Owner
- Get-Service workstation | select  Username,Starttype,BinaryPathName
- Get-Service * | ft DisplayName,Username,Status,Starttype,BinaryPathName,Description
+PS> @{TestKey = ('x' * 200)} | Out-String
+Name                           Value
+----                           -----
+TestKey                        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+PS> @{TestKey = ('x' * 200)} | Out-String -Width 250
+Name                           Value
+----                           -----
+TestKey                        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+##################################################################
+# Out-file
+# Set file output width for entire scope
+ $PSDefaultParameterValues['out-file:width'] = 2000
+
+#############################################################
+# Get a date string in the format year-month-day-hour-min-second. The abbreviations in the format string are case-sensitive.
+#
+get-date -format yyyyMMddhhmmss
+
+
+####################################################################
+# Network Details on 5/13/2022
+####################################################################
+# Routing Table
+
+PS C:\Users\alexe> netsh interface ipv6 show route
+
+Publish  Type      Met  Prefix                    Idx  Gateway/Interface Name
+-------  --------  ---  ------------------------  ---  ------------------------
+No       System    256  ::1/128                     1  Loopback Pseudo-Interface 1
+No       System    256  fe80::/64                   6  Local Area Connection* 9
+No       System    256  fe80::/64                   2  Local Area Connection* 10
+No       System    256  fe80::/64                  60  vEthernet (Default Switch)
+No       System    256  fe80::d58:1d89:448a:8df1/128   60  vEthernet (Default Switch)
+No       System    256  fe80::7d09:cbf0:948b:5275/128    2  Local Area Connection* 10
+No       System    256  fe80::fc19:4450:d531:6b58/128    6  Local Area Connection* 9
+No       System    256  ff00::/8                    1  Loopback Pseudo-Interface 1
+No       System    256  ff00::/8                    6  Local Area Connection* 9
+No       System    256  ff00::/8                    2  Local Area Connection* 10
+No       System    256  ff00::/8                   60  vEthernet (Default Switch)
+
+PS C:\Users\alexe> netsh interface ipv4 show route
+
+Publish  Type      Met  Prefix                    Idx  Gateway/Interface Name
+-------  --------  ---  ------------------------  ---  ------------------------
+No       Manual    0    0.0.0.0/0                  18  192.168.1.1
+No       System    256  127.0.0.0/8                 1  Loopback Pseudo-Interface 1
+No       System    256  127.0.0.1/32                1  Loopback Pseudo-Interface 1
+No       System    256  127.255.255.255/32          1  Loopback Pseudo-Interface 1
+No       System    256  172.21.32.0/20             60  vEthernet (Default Switch)
+No       System    256  172.21.32.1/32             60  vEthernet (Default Switch)
+No       System    256  172.21.47.255/32           60  vEthernet (Default Switch)
+No       System    256  192.168.1.0/24             18  Wi-Fi
+No       System    256  192.168.1.194/32           18  Wi-Fi
+No       System    256  192.168.1.255/32           18  Wi-Fi
+No       System    256  224.0.0.0/4                 1  Loopback Pseudo-Interface 1
+No       System    256  224.0.0.0/4                11  Bluetooth Network Connection
+No       System    256  224.0.0.0/4                18  Wi-Fi
+No       System    256  224.0.0.0/4                 6  Local Area Connection* 9
+No       System    256  224.0.0.0/4                 2  Local Area Connection* 10
+No       System    256  224.0.0.0/4                60  vEthernet (Default Switch)
+No       System    256  224.0.0.0/4                23  Ethernet Kaspersky
+No       System    256  255.255.255.255/32          1  Loopback Pseudo-Interface 1
+No       System    256  255.255.255.255/32         11  Bluetooth Network Connection
+No       System    256  255.255.255.255/32         18  Wi-Fi
+No       System    256  255.255.255.255/32          6  Local Area Connection* 9
+No       System    256  255.255.255.255/32          2  Local Area Connection* 10
+No       System    256  255.255.255.255/32         60  vEthernet (Default Switch)
+No       System    256  255.255.255.255/32         23  Ethernet Kaspersky
+
+
+#############################################################
+# Network adapters
+PS C:\home\src\Scripts> Get-NetAdapter
+
+## 4/13
+Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
+----                      --------------------                    ------- ------       ----------             ---------
+Ethernet Kaspersky        Kaspersky Security Data Escort Adapter       23 Disconnected 00-FF-F1-45-1B-15       100 Mbps
+vEthernet (Default Switc… Hyper-V Virtual Ethernet Adapter             58 Up           00-15-5D-23-EC-74        10 Gbps
+Wi-Fi                     TP-Link Wireless MU-MIMO USB Adapter         18 Up           98-48-27-E3-58-63       585 Mbps
+Bluetooth Network Connec… Bluetooth Device (Personal Area Networ…      12 Disconnected 00-1A-7D-B2-10-86         3 Mbps
+Ethernet                  Intel(R) Ethernet Connection (5) I219-…       8 Up           A4-BB-6D-D6-F4-75         1 Gbps
+VirtualBox Host-Only Net… VirtualBox Host-Only Ethernet Adapter         4 Up           0A-00-27-00-00-04         1 Gbps
+
+## 5/13
+Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
+----                      --------------------                    ------- ------       ----------             ---------
+Ethernet Kaspersky        Kaspersky Security Data Escort Adapter       23 Disconnected 00-FF-F1-45-1B-15       100 Mbps
+vEthernet (Default Switc… Hyper-V Virtual Ethernet Adapter             60 Up           00-15-5D-23-EC-74        10 Gbps
+Wi-Fi                     TP-Link Wireless MU-MIMO USB Adapter         18 Up           98-48-27-E3-58-63       585 Mbps
+Bluetooth Network Connec… Bluetooth Device (Personal Area Networ…      11 Disconnected 00-1A-7D-B2-10-86         3 Mbps
+Ethernet                  Intel(R) Ethernet Connection (5) I219-…       8 Up           A4-BB-6D-D6-F4-75         1 Gbps
+VirtualBox Host-Only Net… VirtualBox Host-Only Ethernet Adapter         4 Not Present  0A-00-27-00-00-04          0 bps
+
+
+######################################
+# IP interfaces 
+
+PS C:\Users\alexe> Get-NetIPAddress | ft ifIndex,InterfaceAlias,AddressState,IPAddress,PrefixLength,Type
+
+ifIndex InterfaceAlias               AddressState IPAddress                   PrefixLength    Type
+------- --------------               ------------ ---------                   ------------    ----
+     60 vEthernet (Default Switch)      Preferred fe80::d58:1d89:448a:8df1%60           64 Unicast
+      2 Local Area Connection* 10      Deprecated fe80::7d09:cbf0:948b:5275%2           64 Unicast
+      6 Local Area Connection* 9       Deprecated fe80::fc19:4450:d531:6b58%6           64 Unicast
+      1 Loopback Pseudo-Interface 1     Preferred ::1                                  128 Unicast
+     23 Ethernet Kaspersky              Tentative 169.254.5.69                          16 Unicast
+     60 vEthernet (Default Switch)      Preferred 172.21.32.1                           20 Unicast
+      2 Local Area Connection* 10       Tentative 169.254.82.117                        16 Unicast
+      6 Local Area Connection* 9        Tentative 169.254.107.88                        16 Unicast
+     11 Bluetooth Network Connection    Tentative 169.254.214.20                        16 Unicast
+     18 Wi-Fi                           Preferred 192.168.1.194                         24 Unicast
+      1 Loopback Pseudo-Interface 1     Preferred 127.0.0.1                              8 Unicast
+
+PS C:\Users\alexe> Get-NetIPConfiguration | ft InterfaceIndex,InterfaceAlias,AllIPAddresses,InterfaceDescription
+
+InterfaceIndex InterfaceAlias               AllIPAddresses                             InterfaceDescription
+-------------- --------------               --------------                             --------------------
+            60 vEthernet (Default Switch)   {172.21.32.1, fe80::d58:1d89:448a:8df1%60} Hyper-V Virtual Ethernet Adapter
+            18 Wi-Fi                        {192.168.1.194}                            TP-Link Wireless MU-MIMO USB Adapter
+            23 Ethernet Kaspersky           {169.254.5.69}                             Kaspersky Security Data Escort Adapter
+            11 Bluetooth Network Connection {169.254.214.20}                           Bluetooth Device (Personal Area Network)
+
+PS C:\Users\alexe> Get-NetIPConfiguration | fl InterfaceIndex,InterfaceAlias,InterfaceDescription,DNSServer,NetProfile,IPv4DefaultGateway,IPv4Address,NetIPv4Interface,IPv6Address,IPv6LinkLocalAddress,IPv6DefaultGateway,NetIPv6Interface
+
+InterfaceIndex       : 60
+InterfaceAlias       : vEthernet (Default Switch)
+InterfaceDescription : Hyper-V Virtual Ethernet Adapter
+DNSServer            : {MSFT_DNSClientServerAddress (Name = "60", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name = "60", CreationClassName = "", SystemCreationClassName = "",
+                       SystemName = "2")}
+NetProfile           :
+IPv4DefaultGateway   :
+IPv4Address          : {172.21.32.1}
+NetIPv4Interface     : MSFT_NetIPInterface (Name = "@:55?55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+IPv6Address          : {}
+IPv6LinkLocalAddress : {fe80::d58:1d89:448a:8df1%60}
+IPv6DefaultGateway   :
+NetIPv6Interface     : MSFT_NetIPInterface (Name = "@:55??55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+
+InterfaceIndex       : 18
+InterfaceAlias       : Wi-Fi
+InterfaceDescription : TP-Link Wireless MU-MIMO USB Adapter
+DNSServer            : {MSFT_DNSClientServerAddress (Name = "18", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name = "18", CreationClassName = "", SystemCreationClassName = "",
+                       SystemName = "2")}
+NetProfile           : MSFT_NetConnectionProfile (InstanceID = "{C04946AA-8065-44AB-A9FF-9313C06B53CE}")
+IPv4DefaultGateway   : {MSFT_NetRoute (InstanceID = ":8:8:8:9:55;B55;C?8;@B8;8;55;")}
+IPv4Address          : {192.168.1.194}
+NetIPv4Interface     : MSFT_NetIPInterface (Name = ";B55?55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+IPv6Address          : {}
+IPv6LinkLocalAddress : {}
+IPv6DefaultGateway   :
+NetIPv6Interface     :
+
+InterfaceIndex       : 23
+InterfaceAlias       : Ethernet Kaspersky
+InterfaceDescription : Kaspersky Security Data Escort Adapter
+DNSServer            : {MSFT_DNSClientServerAddress (Name = "23", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name = "23", CreationClassName = "", SystemCreationClassName = "",
+                       SystemName = "2")}
+NetProfile           :
+IPv4DefaultGateway   :
+IPv4Address          : {169.254.5.69}
+NetIPv4Interface     : MSFT_NetIPInterface (Name = "??55?55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+IPv6Address          : {}
+IPv6LinkLocalAddress : {}
+IPv6DefaultGateway   :
+NetIPv6Interface     :
+
+InterfaceIndex       : 11
+InterfaceAlias       : Bluetooth Network Connection
+InterfaceDescription : Bluetooth Device (Personal Area Network)
+DNSServer            : {MSFT_DNSClientServerAddress (Name = "11", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name = "11", CreationClassName = "", SystemCreationClassName = "",
+                       SystemName = "2")}
+NetProfile           :
+IPv4DefaultGateway   :
+IPv4Address          : {169.254.214.20}
+NetIPv4Interface     : MSFT_NetIPInterface (Name = ";;55?55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+IPv6Address          : {}
+IPv6LinkLocalAddress : {}
+IPv6DefaultGateway   :
+NetIPv6Interface     :
+
+#########################################
+# Routes
+# Get-NetRoute
+
+PS C:\Users\alexe> Get-NetRoute
+
+ifIndex DestinationPrefix                              NextHop                                  RouteMetric ifMetric PolicyStore
+------- -----------------                              -------                                  ----------- -------- -----------
+23      255.255.255.255/32                             0.0.0.0                                          256 35       ActiveStore
+60      255.255.255.255/32                             0.0.0.0                                          256 5000     ActiveStore
+2       255.255.255.255/32                             0.0.0.0                                          256 25       ActiveStore
+6       255.255.255.255/32                             0.0.0.0                                          256 25       ActiveStore
+18      255.255.255.255/32                             0.0.0.0                                          256 35       ActiveStore
+11      255.255.255.255/32                             0.0.0.0                                          256 65       ActiveStore
+1       255.255.255.255/32                             0.0.0.0                                          256 75       ActiveStore
+23      224.0.0.0/4                                    0.0.0.0                                          256 35       ActiveStore
+60      224.0.0.0/4                                    0.0.0.0                                          256 5000     ActiveStore
+2       224.0.0.0/4                                    0.0.0.0                                          256 25       ActiveStore
+6       224.0.0.0/4                                    0.0.0.0                                          256 25       ActiveStore
+18      224.0.0.0/4                                    0.0.0.0                                          256 35       ActiveStore
+11      224.0.0.0/4                                    0.0.0.0                                          256 65       ActiveStore
+1       224.0.0.0/4                                    0.0.0.0                                          256 75       ActiveStore
+18      192.168.1.255/32                               0.0.0.0                                          256 35       ActiveStore
+18      192.168.1.194/32                               0.0.0.0                                          256 35       ActiveStore
+18      192.168.1.0/24                                 0.0.0.0                                          256 35       ActiveStore
+60      172.21.47.255/32                               0.0.0.0                                          256 5000     ActiveStore
+60      172.21.32.1/32                                 0.0.0.0                                          256 5000     ActiveStore
+60      172.21.32.0/20                                 0.0.0.0                                          256 5000     ActiveStore
+1       127.255.255.255/32                             0.0.0.0                                          256 75       ActiveStore
+1       127.0.0.1/32                                   0.0.0.0                                          256 75       ActiveStore
+1       127.0.0.0/8                                    0.0.0.0                                          256 75       ActiveStore
+18      0.0.0.0/0                                      192.168.1.1                                        0 35       ActiveStore
+60      ff00::/8                                       ::                                               256 5000     ActiveStore
+2       ff00::/8                                       ::                                               256 25       ActiveStore
+6       ff00::/8                                       ::                                               256 25       ActiveStore
+1       ff00::/8                                       ::                                               256 75       ActiveStore
+60      fe80::d58:1d89:448a:8df1/128                   ::                                               256 5000     ActiveStore
+60      fe80::/64                                      ::                                               256 5000     ActiveStore
+1       ::1/128                                        ::                                               256 75       ActiveStore
+
+#
+Remove-NetRoute -InterfaceIndex 2,6
+
+#########################################
+#  neighbor cache entries
+# Get-NetNeighbor
+
+PS C:\Users\alexe> Get-NetNeighbor
+
+ifIndex IPAddress                                          LinkLayerAddress      State       PolicyStore
+------- ---------                                          ----------------      -----       -----------
+60      ff02::1:ff8a:8df1                                  33-33-FF-8A-8D-F1     Permanent   ActiveStore
+60      ff02::1:3                                          33-33-00-01-00-03     Permanent   ActiveStore
+60      ff02::1:2                                          33-33-00-01-00-02     Permanent   ActiveStore
+60      ff02::fb                                           33-33-00-00-00-FB     Permanent   ActiveStore
+60      ff02::16                                           33-33-00-00-00-16     Permanent   ActiveStore
+60      ff02::c                                            33-33-00-00-00-0C     Permanent   ActiveStore
+60      ff02::2                                            33-33-00-00-00-02     Permanent   ActiveStore
+60      ff02::1                                            33-33-00-00-00-01     Permanent   ActiveStore
+60      fe80::d58:1d89:448a:8df1                           00-00-00-00-00-00     Unreachable ActiveStore
+2       ff02::1:3                                          33-33-00-01-00-03     Permanent   ActiveStore
+2       ff02::1:2                                          33-33-00-01-00-02     Permanent   ActiveStore
+2       ff02::fb                                           33-33-00-00-00-FB     Permanent   ActiveStore
+2       ff02::16                                           33-33-00-00-00-16     Permanent   ActiveStore
+2       fe80::d58:1d89:448a:8df1                           00-00-00-00-00-00     Unreachable ActiveStore
+6       ff02::1:3                                          33-33-00-01-00-03     Permanent   ActiveStore
+6       ff02::1:2                                          33-33-00-01-00-02     Permanent   ActiveStore
+6       ff02::fb                                           33-33-00-00-00-FB     Permanent   ActiveStore
+6       ff02::16                                           33-33-00-00-00-16     Permanent   ActiveStore
+6       fe80::d58:1d89:448a:8df1                           00-00-00-00-00-00     Unreachable ActiveStore
+1       ff02::1:3                                                                Permanent   ActiveStore
+1       ff02::1:2                                                                Permanent   ActiveStore
+1       ff02::fb                                                                 Permanent   ActiveStore
+1       ff02::16                                                                 Permanent   ActiveStore
+1       ff02::c                                                                  Permanent   ActiveStore
+23      224.0.0.252                                        01-00-5E-00-00-FC     Permanent   ActiveStore
+23      224.0.0.251                                        01-00-5E-00-00-FB     Permanent   ActiveStore
+23      224.0.0.22                                         01-00-5E-00-00-16     Permanent   ActiveStore
+60      255.255.255.255                                    FF-FF-FF-FF-FF-FF     Permanent   ActiveStore
+60      239.255.255.250                                    01-00-5E-7F-FF-FA     Permanent   ActiveStore
+60      224.0.0.252                                        01-00-5E-00-00-FC     Permanent   ActiveStore
+60      224.0.0.251                                        01-00-5E-00-00-FB     Permanent   ActiveStore
+60      224.0.0.22                                         01-00-5E-00-00-16     Permanent   ActiveStore
+60      172.21.47.255                                      FF-FF-FF-FF-FF-FF     Permanent   ActiveStore
+60      172.21.32.1                                        00-00-00-00-00-00     Unreachable ActiveStore
+2       224.0.0.252                                        01-00-5E-00-00-FC     Permanent   ActiveStore
+2       224.0.0.251                                        01-00-5E-00-00-FB     Permanent   ActiveStore
+2       224.0.0.22                                         01-00-5E-00-00-16     Permanent   ActiveStore
+6       224.0.0.252                                        01-00-5E-00-00-FC     Permanent   ActiveStore
+6       224.0.0.251                                        01-00-5E-00-00-FB     Permanent   ActiveStore
+6       224.0.0.22                                         01-00-5E-00-00-16     Permanent   ActiveStore
+11      224.0.0.252                                        01-00-5E-00-00-FC     Permanent   ActiveStore
+11      224.0.0.251                                        01-00-5E-00-00-FB     Permanent   ActiveStore
+11      224.0.0.22                                         01-00-5E-00-00-16     Permanent   ActiveStore
+18      255.255.255.255                                    FF-FF-FF-FF-FF-FF     Permanent   ActiveStore
+18      239.255.255.250                                    01-00-5E-7F-FF-FA     Permanent   ActiveStore
+18      224.0.0.252                                        01-00-5E-00-00-FC     Permanent   ActiveStore
+18      224.0.0.251                                        01-00-5E-00-00-FB     Permanent   ActiveStore
+18      224.0.0.22                                         01-00-5E-00-00-16     Permanent   ActiveStore
+18      192.168.1.255                                      FF-FF-FF-FF-FF-FF     Permanent   ActiveStore
+18      192.168.1.230                                      B0-60-88-D9-C5-56     Stale       ActiveStore
+18      192.168.1.208                                      B0-52-16-CE-BE-F7     Stale       ActiveStore
+18      192.168.1.206                                      00-00-00-00-00-00     Unreachable ActiveStore
+18      192.168.1.205                                      00-90-A9-6B-58-66     Reachable   ActiveStore
+18      192.168.1.187                                      00-00-00-00-00-00     Unreachable ActiveStore
+18      192.168.1.92                                       00-15-5D-01-58-13     Stale       ActiveStore
+18      192.168.1.1                                        48-5D-36-22-B4-74     Reachable   ActiveStore
+1       239.255.255.250                                                          Permanent   ActiveStore
+1       224.0.0.252                                                              Permanent   ActiveStore
+1       224.0.0.251                                                              Permanent   ActiveStore
+1       224.0.0.22                                                               Permanent   ActiveStore
+
+##
+Remove-NetNeighbor -State Unreachable
+Remove-NetNeighbor -InterfaceIndex 2,6
+
+## FirewWall
+netsh advfirewall show currentprofile
+Get-NetFirewallProfile
+Name                            : Domain
+Enabled                         : True
+DefaultInboundAction            : NotConfigured
+DefaultOutboundAction           : NotConfigured
+AllowInboundRules               : NotConfigured
+AllowLocalFirewallRules         : NotConfigured
+AllowLocalIPsecRules            : NotConfigured
+AllowUserApps                   : NotConfigured
+AllowUserPorts                  : NotConfigured
+AllowUnicastResponseToMulticast : NotConfigured
+NotifyOnListen                  : True
+EnableStealthModeForIPsec       : NotConfigured
+LogFileName                     : %systemroot%\system32\LogFiles\Firewall\pfirewall.log
+LogMaxSizeKilobytes             : 4096
+LogAllowed                      : False
+LogBlocked                      : False
+LogIgnored                      : NotConfigured
+DisabledInterfaceAliases        : {NotConfigured}
+
+Name                            : Private
+Enabled                         : True
+DefaultInboundAction            : NotConfigured
+DefaultOutboundAction           : NotConfigured
+AllowInboundRules               : NotConfigured
+AllowLocalFirewallRules         : NotConfigured
+AllowLocalIPsecRules            : NotConfigured
+AllowUserApps                   : NotConfigured
+AllowUserPorts                  : NotConfigured
+AllowUnicastResponseToMulticast : NotConfigured
+NotifyOnListen                  : True
+EnableStealthModeForIPsec       : NotConfigured
+LogFileName                     : %systemroot%\system32\LogFiles\Firewall\pfirewall.log
+LogMaxSizeKilobytes             : 4096
+LogAllowed                      : False
+LogBlocked                      : False
+LogIgnored                      : NotConfigured
+DisabledInterfaceAliases        : {NotConfigured}
+
+Name                            : Public
+Enabled                         : True
+DefaultInboundAction            : NotConfigured
+DefaultOutboundAction           : NotConfigured
+AllowInboundRules               : NotConfigured
+AllowLocalFirewallRules         : NotConfigured
+AllowLocalIPsecRules            : NotConfigured
+AllowUserApps                   : NotConfigured
+AllowUserPorts                  : NotConfigured
+AllowUnicastResponseToMulticast : NotConfigured
+NotifyOnListen                  : True
+EnableStealthModeForIPsec       : NotConfigured
+LogFileName                     : %systemroot%\system32\LogFiles\Firewall\pfirewall.log
+LogMaxSizeKilobytes             : 4096
+LogAllowed                      : False
+LogBlocked                      : False
+LogIgnored                      : NotConfigured
+DisabledInterfaceAliases        : {NotConfigured}
+
+
+
+#########################################
+# Applications 05-13-2022
+PS C:\Users\alexe> wmic product get name,version,vendor
+Name                                                            Vendor                       Version
+WinRT Intellisense IoT - en-us                                  Microsoft Corporation        10.1.22000.194
+Windows SDK Modern Versioned Developer Tools                    Microsoft Corporation        10.1.22000.194
+Universal CRT Tools x64                                         Microsoft Corporation        10.1.22000.194
+Intel(R) Management Engine Components                           Intel Corporation            1.0.0.0
+MSI Development Tools                                           Microsoft Corporation        10.1.22000.194
+Windows Mobile Extension SDK Contracts                          Microsoft Corporation        10.1.22000.194
+Microsoft VC++ redistributables repacked.                       Intel Corporation            12.0.0.0
+Windows IP Over USB                                             Microsoft Corporation        10.1.22000.194
+Microsoft .NET Framework 4.8 Targeting Pack                     Microsoft Corporation        4.8.03761
+WinRT Intellisense IoT - Other Languages                        Microsoft Corporation        10.1.22000.194
+Microsoft Visual C++ 2013 x86 Minimum Runtime - 12.0.21005      Microsoft Corporation        12.0.21005
+Microsoft Visual C++ 2013 x86 Additional Runtime - 12.0.21005   Microsoft Corporation        12.0.21005
+WPTx64 (DesktopEditions)                                        Microsoft                    10.1.22000.194
+Universal CRT Redistributable                                   Microsoft Corporation        10.1.22000.194
+Microsoft Visual C++ 2019 X64 Minimum Runtime - 14.29.30139     Microsoft Corporation        14.29.30139
+Microsoft Visual C++ 2019 X64 Additional Runtime - 14.29.30139  Microsoft Corporation        14.29.30139
+SDK Debuggers                                                   Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Libs arm64                                  Microsoft Corporation        10.1.22000.194
+Maxx Audio Installer (x64)                                      Waves Audio Ltd.             2.7.13058.0
+WinRT Intellisense PPI - Other Languages                        Microsoft Corporation        10.1.22000.194
+Epic Online Services                                            Epic Games, Inc.             2.0.33.0
+Windows SDK Desktop Tools arm64                                 Microsoft Corporation        10.1.22000.194
+Realtek Audio COM Components                                    Realtek Semiconductor Corp.  1.0.2
+Windows Team Extension SDK Contracts                            Microsoft Corporation        10.1.22000.194
+Windows SDK DirectX x64 Remote                                  Microsoft Corporation        10.1.22000.194
+Application Verifier x64 External Package                       Microsoft                    10.1.22000.194
+WinRT Intellisense UAP - en-us                                  Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Headers x64                                 Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Headers arm                                 Microsoft Corporation        10.1.22000.194
+Windows App Certification Kit x64                               Microsoft Corporation        10.1.22000.194
+Universal General MIDI DLS Extension SDK                        Microsoft Corporation        10.1.22000.194
+Windows SDK Facade Windows WinMD Versioned                      Microsoft Corporation        10.1.22000.194
+Universal CRT Tools x86                                         Microsoft Corporation        10.1.22000.194
+Intel(R) Management Engine Components                           Intel Corporation            1.0.0.0
+Windows SDK EULA                                                Microsoft Corporations       10.1.22000.194
+Windows IoT Extension SDK                                       Microsoft Corporation        10.1.22000.194
+Windows Mobile Extension SDK                                    Microsoft Corporation        10.1.22000.194
+Windows Subsystem for Linux WSLg Preview                        Microsoft Corporation        1.0.26
+Intel(R) Trusted Connect Service Client x86                     Intel Corporation            1.63.1155.1
+Intel(R) Trusted Connect Service Client x64                     Intel Corporation            1.63.1155.1
+WinRT Intellisense Desktop - en-us                              Microsoft Corporation        10.1.22000.194
+Microsoft .NET Framework 4.8 SDK                                Microsoft Corporation        4.8.03928
+Universal CRT Headers Libraries and Sources                     Microsoft Corporation        10.1.22000.194
+Windows SDK for Windows Store Apps DirectX x86 Remote           Microsoft Corporation        10.1.22000.194
+Microsoft Update Health Tools                                   Microsoft Corporation        4.67.0.0
+Microsoft VC++ redistributables repacked.                       Intel Corporation            12.0.0.0
+WPTx64 (OnecoreUAP)                                             Microsoft                    10.1.22000.194
+Microsoft Visual C++ 2019 X86 Additional Runtime - 14.24.28127  Microsoft Corporation        14.24.28127
+Epic Games Launcher                                             Epic Games, Inc.             1.3.23.0
+Windows Subsystem for Linux Update                              Microsoft Corporation        5.10.102.1
+Windows SDK                                                     Microsoft Corporation        10.1.22000.194
+Windows Team Extension SDK                                      Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Headers x86                                 Microsoft Corporation        10.1.22000.194
+Mozilla VPN                                                     Mozilla Corporation          2.8.0.0
+WPT Redistributables                                            Microsoft                    10.1.22000.194
+Windows SDK for Windows Store Apps                              Microsoft Corporation        10.1.22000.194
+WinRT Intellisense UAP - Other Languages                        Microsoft Corporation        10.1.22000.194
+Intel(R) Management Engine Driver                               Intel Corporation            1.0.0.0
+Kaspersky VPN                                                   Kaspersky                    21.3.10.391
+Kits Configuration Installer                                    Microsoft                    10.1.22000.194
+Oracle VM VirtualBox 6.1.34                                     Oracle Corporation           6.1.34
+Kaspersky Total Security                                        Kaspersky                    21.3.10.391
+WinRT Intellisense Mobile - en-us                               Microsoft Corporation        10.1.22000.194
+Windows SDK for Windows Store Apps Metadata                     Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Headers arm64                               Microsoft Corporation        10.1.22000.194
+Windows SDK for Windows Store Apps Contracts                    Microsoft Corporation        10.1.22000.194
+Windows SDK for Windows Store Apps Headers                      Microsoft Corporation        10.1.22000.194
+Windows Desktop Extension SDK Contracts                         Microsoft Corporation        10.1.22000.194
+Windows SDK for Windows Store Apps Libs                         Microsoft Corporation        10.1.22000.194
+Windows SDK for Windows Store Managed Apps Libs                 Microsoft Corporation        10.1.22000.194
+SDK ARM Additions                                               Microsoft Corporation        10.1.22000.194
+DTrace for Windows                                              Microsoft Corporation        1.1.0
+Windows SDK Desktop Libs x86                                    Microsoft Corporation        10.1.22000.194
+Windows Desktop Extension SDK                                   Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Libs x64                                    Microsoft Corporation        10.1.22000.194
+WinRT Intellisense PPI - en-us                                  Microsoft Corporation        10.1.22000.194
+WinRT Intellisense Desktop - Other Languages                    Microsoft Corporation        10.1.22000.194
+Windows SDK AddOn                                               Microsoft Corporation        10.1.0.0
+WinAppDeploy                                                    Microsoft Corporation        10.1.22000.194
+Windows SDK DirectX x86 Remote                                  Microsoft Corporation        10.1.22000.194
+Windows SDK for Windows Store Apps Tools                        Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Tools x86                                   Microsoft Corporation        10.1.22000.194
+Windows App Certification Kit SupportedApiList x86              Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Libs arm                                    Microsoft Corporation        10.1.22000.194
+Kaspersky Password Manager                                      Kaspersky Lab                9.0.2.767
+UE Prerequisites (x64)                                          Epic Games, Inc.             1.0.14.0
+Universal CRT Extension SDK                                     Microsoft Corporation        10.1.22000.194
+Windows IoT Extension SDK Contracts                             Microsoft Corporation        10.1.22000.194
+Windows SDK Signing Tools                                       Microsoft Corporation        10.1.22000.194
+Windows SDK Desktop Tools x64                                   Microsoft Corporation        10.1.22000.194
+Windows SDK ARM Desktop Tools                                   Microsoft Corporation        10.1.22000.194
+Windows SDK Modern Non-Versioned Developer Tools                Microsoft Corporation        10.1.22000.194
+Windows App Certification Kit Native Components                 Microsoft Corporation        10.1.22000.194
+Microsoft Visual C++ 2019 X86 Minimum Runtime - 14.24.28127     Microsoft Corporation        14.24.28127
+PowerShell 7-x64                                                Microsoft Corporation        7.2.3.0
+SDK ARM Redistributables                                        Microsoft Corporation        10.1.22000.194
+Windows SDK Redistributables                                    Microsoft Corporation        10.1.22000.194
+
+
