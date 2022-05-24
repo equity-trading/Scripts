@@ -50,6 +50,10 @@ Get-Service -ea 0| Where-Object Status -eq "Running"
 Get-Service      | Format-Table -view ansi
 [wmi]"root\cimv2:win32_service.Name='spooler'"
 
+sc.exe query type=driver state=inactive # state=active doesn't work
+sc.exe query state=inactive type=all
+sc.exe query state=inactive type=service  | findstr.exe -i '.*app.*info'
+
 ############################################################################
 # Service Report
 Get-Service Bits,Winrm | Convertto-Markdown -title "Service Check" -precontent "## $($env:computername)" -postcontent "_report $(Get-Date)_"
