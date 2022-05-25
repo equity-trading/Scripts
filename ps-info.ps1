@@ -425,6 +425,67 @@ function get-processes($names,[int[]]$ids) {
 	}
 }
 
+function get-Services($cmds=@("SC")) {
+	
+	foreach ($cmd in $cmds) {
+		switch($cmd) {
+			"SC" { 
+				##################################
+				 # -replace('(\w+)=([0-9]\w*)  (.+)','$1=$2; $1_INFO="$3"') -replace('(\w+)=([0-9]\w*).*','$1=$2') 
+				$Global:SC_SERVICES=$(
+				##################################
+				$tArr=@(); $Idx=0; $TestCnt=100000
+				$Global:SC_LINES=((sc.exe query | select -first $TestCnt | Out-String -stream ).Trim() |? {$_} )
+				$Global:SC_LINES -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
+				select -first $TestCnt | % {
+					# '[{0}] {1}' -f $IDX, $_
+					if ($_ -like 'SERVICE_NAME=*') {
+						if ($tArr) {  
+							$tArr=$( $EXTRA=@(); $tArr |% { if($_ -match '\w+=.*' ) { $_ } else {$EXTRA+=@($_)} }; 'SERVICE_ATTR="{0}"' -f $EXTRA )
+							# $scriptblock=[scriptblock]::Create("New-Object -TypeName PSCustomObject -Property ([ordered]@{ IDX=$Idx; $($tArr -join('; '))})")
+							& ([scriptblock]::Create("New-Object -TypeName PSCustomObject -Property ([ordered]@{ IDX=$Idx; $($tArr -join('; '))})"))
+							$Idx++
+						}
+						$tArr=@()
+					}
+					$tArr+=@($_)
+				}
+				##################################
+				)
+				'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
+				##################################
+			}
+			"SC2" {
+
+			##################################
+			$Global:SC_SERVICES=$(
+			##################################
+			$TestCnt=30
+			$Global:SC_LINES=((sc.exe query | select -first $TestCnt | Out-String -stream ).Trim() |? {$_} );
+			# ConvertFrom-StringData $($SC_LINES[0..8] -replace ':','=' -replace '^\(','EXTRA_ATTR=(' -join("`n"))
+			$tArr=@(); $Idx=0; $prevIdx=0
+			$Global:SC_LINES -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
+			select -first $TestCnt | % {
+				# '[{0}] {1}' -f $IDX, $_
+				if ($_ -like 'SERVICE_NAME=*') {
+						ConvertFrom-StringData $($Global:SC_LINES[$prevIdx,$($Idx-1)] -replace ':','=' -replace '^\(','EXTRA_ATTR=(' -join("`n"))
+						$prevIdx=$Idx
+					}
+					$Idx++
+				}
+			}
+			##################################
+			)
+			'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
+			##################################
+
+			}
+			"PS" {
+
+			}
+		}
+	}
+}
 
 function get-services($names,[int[]]$ids) {
 
