@@ -1,6 +1,15 @@
 # Get-Process WDDriveService,Sysmon,Sysmon,ServiceShell
 
-$ServiceAttr=@( @{n="Name";e={$_.Name}}
+if (!$Global:Users) { $Global:Users=Get-LocalUser }
+
+$e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"; $strk = "$e[9m"; $nrml="$e[29m"
+$red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
+$bold="$e[1m";$bold_off="$e[22m";
+$fmt_var="{0,-15}"
+$watch=[System.Diagnostics.Stopwatch]::New()
+$myscript=$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf)
+
+$ServiceCols=@( @{n="Name";e={$_.Name}}
 @{n="Status";e={$_.Status}}
 @{n="State";e={$_.State}}
 @{n="ExitCode";e={$_.ExitCode}}
@@ -425,11 +434,78 @@ function get-processes($names,[int[]]$ids) {
 	}
 }
 
+
+function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $mode='array') {
+
+	if(!$quiet) {
+		"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
+	   		$watch.Elapsed.milliseconds,$watch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
+			'$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
+	}
+	$exe_watch=[System.Diagnostics.Stopwatch]::New()
+	[string[]] $cmd_arr=$cmd -split(" ")
+	$exe=$cmd_arr[0] 
+	$exe_args=$cmd_arr[1..$($cmd_arr.Count-1)]
+	if (!$exe_watch.IsRunning) { $exe_watch.Start()}
+	$exe_watch.Reset()
+	switch($mode) {
+		'string2' {
+			# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
+			$Global:CMD_OUT=& $exe $exe_args | Out-String # Note: Adds a trailing newline.
+		}
+		'string' {
+			# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
+			$Global:CMD_OUT=(& $exe $exe_args ) -join "`n"
+		}
+		'test' {
+			if($maxcount) { $cnt=$maxcount } else { $cnt=10 }
+			$Global:CMD_OUT=& $exe $exe_args | select-object -first $cnt
+		}
+		'arr' {
+			[array] $Global:CMD_OUT=& $exe $exe_args
+		}
+		default {
+			if ($mode -is [int]) {
+				$Global:CMD_OUT=& $exe $exe_args | select-object -first $cnt
+			} else {
+				[array] $Global:CMD_OUT=& $exe $exe_args
+			}
+		}
+	}
+	$exe_watch.Stop()
+	if ($maxcount) {
+		$Global:CMD_OUT=$Global:CMD_OUT[0..($maxcount-1)]
+	}
+    if (!$quiet) {
+        "$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'COMMAND', $cmd
+		"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'mode', $mode
+		"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'Elapsed', "$($exe_watch.Elapsed.ticks) ticks"
+		"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'Elapsed', "$($exe_watch.Elapsed.milliseconds) ms"
+		if ($Global:CMD_OUT -is [array]) {
+			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"first $sample_lines lines"
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $Global:CMD_OUT[$_]}
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$Global:CMD_OUT.Count	
+		} else {
+			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"is a string of $($Global:CMD_OUT.Length) symbols"
+			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'Splitting',"first $sample_lines lines"
+			$tmpArr=@($Global:CMD_OUT -split("`n"))
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $tmpArr[$_]}
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$tmpArr.Count	
+		}
+    }
+}
+
 function get-Services($cmds=@("SC")) {
-	
 	foreach ($cmd in $cmds) {
 		switch($cmd) {
 			"SC" { 
+# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
+# $SC_LINES =sc.exe query 
+# $SC_LINES =sc.exe query  | Out-String -stream  # many lines
+# $SC_OUTPUT=sc.exe query  | Out-String # just one line
+# $SC_LINES =sc.exe query  |? {$_.Trim()} # empty lines removed
+# $SC_LINES =sc.exe query  |% {$_.Trim()} # lines are trimmed
+# $SC_LINES =sc.exe query  |% {$_.Trim()}|? $_ # lines are trimmed, empty lines removed
 				##################################
 				 # -replace('(\w+)=([0-9]\w*)  (.+)','$1=$2; $1_INFO="$3"') -replace('(\w+)=([0-9]\w*).*','$1=$2') 
 				$Global:SC_SERVICES=$(
@@ -455,34 +531,38 @@ function get-Services($cmds=@("SC")) {
 				'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
 				##################################
 			}
+
 			"SC2" {
-
-			##################################
-			$Global:SC_SERVICES=$(
-			##################################
-			$TestCnt=30
-			$Global:SC_LINES=((sc.exe query | select -first $TestCnt | Out-String -stream ).Trim() |? {$_} );
-			# ConvertFrom-StringData $($SC_LINES[0..8] -replace ':','=' -replace '^\(','EXTRA_ATTR=(' -join("`n"))
-			$tArr=@(); $Idx=0; $prevIdx=0
-			$Global:SC_LINES -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
-			select -first $TestCnt | % {
-				# '[{0}] {1}' -f $IDX, $_
-				if ($_ -like 'SERVICE_NAME=*') {
-						ConvertFrom-StringData $($Global:SC_LINES[$prevIdx,$($Idx-1)] -replace ':','=' -replace '^\(','EXTRA_ATTR=(' -join("`n"))
-						$prevIdx=$Idx
+				##################################
+				exe-cmd "sc.exe query"
+				$Global:SC_SERVICES=$(
+					##################################
+					$Global:SC_LINES=$Global:CMD_OUT | Out-String -stream ).Trim() |? {$_};
+					# ConvertFrom-StringData $($SC_LINES[0..8] -replace ':','=' -replace '^\(','EXTRA_ATTR=(' -join("`n"))
+					$Idx=0; $prevIdx=0
+					$Global:SC_LINES -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
+					for (($Idx=0), ($prevIdx=0); $Idx -lt $Global:SC_LINES.Count; $Idx++) {
+						# '[{0}] {1}' -f $IDX, $_
+						if ($Global:SC_LINES[$Idx] -like 'SERVICE_NAME=*') {
+							[pscustomobject] (ConvertFrom-StringData $($Global:SC_LINES[$prevIdx..$($Idx-1)] -replace '^\(','EXTRA_ATTR:(' -join("`n"))  -Delimiter ':')
+							$prevIdx=$Idx
+						}
 					}
-					$Idx++
-				}
+					##################################
+				)
+				'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
+				##################################
 			}
-			##################################
-			)
-			'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
-			##################################
 
+			"CIM" {
+				$Global:WIN32_SERVICE=Get-CimInstance Win32_Process -ea 0
 			}
-			"PS" {
+			
 
+			default {
+				$Global:SERVICES=get-service
 			}
+
 		}
 	}
 }
