@@ -2002,14 +2002,42 @@ $string -replace $pattern, "."
 
 
 
-##############################
-##############################
-######                 #######
-######  Text Strings   #######
-######                 #######
-##############################
-##############################
+###################################
+###################################
+######                      #######
+######   Text Processing    #######
+######                      #######
+###################################
+###################################
+# $OldOFS = $OFS
+# $OFS = "`r`n"
+# ...
+# $OFS = $OldOFS
+# -join [System.Environment]::NewLine
+#####################
+# Text Processing
+# $SC_LINES =sc.exe query 
+# $SC_LINES =sc.exe query    | Out-String -stream   # array of strings, one string per line
+# $SC_OUTPUT=sc.exe query    | Out-String           # as just one string, Note: adds a trailing newline.
+# $SC_OUTPUT=(sc.exe query) -join "`n"              # as just one string, no trailing newline.
+# $SC_LINES =sc.exe query    |? {$_.Trim()}         # empty lines removed
+# $SC_LINES =sc.exe query    |% {$_.Trim()}         # lines are trimmed
+# $SC_LINES =sc.exe query    |% {$_.Trim()}|? $_    # lines are trimmed, empty lines removed
 
+$XX=sc.exe query; $XX.Count; $XX[0..4]
+
+
+function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4) {
+    $Global:CMD_OUT=& ($cmd -split(" "))[0] ($cmd -split(" "))[1]
+    if (!$quiet) {
+        "`e[#p`e[1m`e[34m{0,-15}`e[22m  : `e[33m{1}`e[#q" -f 'COMMAND',$cmd
+        "`e[#p`e[1m`e[34m{0,-15}`e[22m  : `e[33m{1}`e[#q" -f '$Global:CMD_OUT',"first $sample_lines lines"
+        0..$($sample_lines - 1) |% {"`e[#p`e[32m{0,-5} `e[34m<`e[33m{1}`e[34m>`e[#q" -f $($_+1), $Global:CMD_OUT[$_]}
+        "`e[#p`e[1m`e[34m{0,-15}`e[22m : `e[33m{1}`e[#q" -f 'Total lines',$Global:CMD_OUT.Count
+    }
+}
+
+exe-cmd "sc.exe query"
 
 #######################
 # Get the last line of a text file
