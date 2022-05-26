@@ -1,4 +1,6 @@
-using namespace System.Management.Automation
+param($command=ps-info)
+#using namespace System.Management.Automation
+
 # Get-Process WDDriveService,Sysmon,Sysmon,ServiceShell
 
 if (!$Global:Users) { $Global:Users=Get-LocalUser }
@@ -7,6 +9,25 @@ $e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"
 $red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
 $bold="$e[1m";$bold_off="$e[22m";
 $fmt_var="{0,-15}"
+
+
+$W32_PROC_FMT=@{
+    Property=@( 'Name', 'Status', @{N='ExecState';E={$_.ExecutionState}}, 'Priority', @{N='PPID';E={$_.ParentProcessId}}, 'ProcessId', 
+    @{N='StartDt';E={$V=$_.CreationDate;'{0}-{1}-{2}' -f $V.Substring(0,4),$V.Substring(4,2),$V.Substring(6,2) }},
+    @{N='StartTm';E={$V=$_.CreationDate;'{0}:{1}:{2}' -f $V.Substring(8,2),$V.Substring(10,2),$V.Substring(12,2) }},
+    'VM', 'WS',
+    @{N='PeakVS';E={$_.PeakVirtualSize}}, @{N='PeakWS';E={$_.PeakWorkingSetSize}},
+    @{N='ReadOpCnt';E={$_.ReadOperationCount}}, @{N='ReadTrCnt';E={$_.ReadTransferCount}},@{N='WrtOpCnt';E={$_.WriteOperationCount}}, @{N='WrtTrCnt';E={$_.WriteTransferCount}}, @{N='OthOpCnt';E={$_.OtherOperationCount}}, @{N='OthTrCnt';E={$_.OtherTransferCount}}, 
+    @{N='Threads';E={$_.ThreadCount}}, @{N='Handles';E={$_.HandleCount}} , 'Handle'
+    @{N='Description';E={if($_.Description){$_.Description}else{$_.Caption}}}, 'ExecutablePath',
+    @{N='PROPERTY_COUNT';E={$_.__PROPERTY_COUNT}},@{N='PATH';E={$.__PATH}},
+    @{N='CLASS';E={$.__CLASS}},@{N='DERIVATION';E={$.__DERIVATION}},@{N='DYNASTY';E={$.__DYNASTY}},
+    @{N='GENUS';E={$.__GENUS}},@{N='SUPERCLASS';E={$.__SUPERCLASS}},@{N='NAMESPACE';E={$.__NAMESPACE}}
+)
+}
+
+$W32_PROC_TBL=@{ Auto=$true; Property='Name','Priority','ProcessID','WS','StartDT','StartTM','PPID','Threads','Handle','ExecutablePath' }
+# Get-WmiObject -Query "Select * from Win32_Process" | Select @W32_PROC_FMT | Sort | ft @W32_PROC_TBL
 
 $ServiceCols=@( @{n="Name";e={$_.Name}}
 @{n="Status";e={$_.Status}}
@@ -511,10 +532,7 @@ function fnc-test($arg1,$arg2='2',$arg3) {
 }
 
 
-function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $mode='array') {
-
-	if(!$quiet) {
-	}
+function exe-cmd( [string] $cmd_line, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $mode='array') {
 	$newline=[environment]::NewLine
 	$nl='\n'
 	$exe_watch=[System.Diagnostics.Stopwatch]::New()
@@ -528,7 +546,7 @@ function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $
 			# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
 			$Global:CMD_OUT=& $exe $exe_args | Out-String # Note: Adds a trailing newline.
 		}
-		'string' {
+		'string' { # one string
 			# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
 			$Global:CMD_OUT=(& $exe $exe_args ) -join "$newline"
 		}
@@ -536,15 +554,12 @@ function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $
 			if($maxcount) { $cnt=$maxcount } else { $cnt=10 }
 			$Global:CMD_OUT=& $exe $exe_args | select-object -first $cnt
 		}
-		'arr' {
+		'raw' {
 			[array] $Global:CMD_OUT=& $exe $exe_args
 		}
 		default {
-			if ($mode -is [int]) {
-				$Global:CMD_OUT=& $exe $exe_args | select-object -first $cnt
-			} else {
-				[array] $Global:CMD_OUT=& $exe $exe_args
-			}
+			[array] $Global:CMD_OUT=& $exe $exe_args|% { $_.Trim() } |? { $_ }
+			if ($mode -is [int]) { $maxcount=$mode }
 		}
 	}
 	$exe_watch.Stop()
@@ -570,7 +585,7 @@ function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $
     }
 }
 
-function get-Services($cmds=@("SC")) {
+function Get-Services($cmds=@("SC")) {
 	foreach ($cmd in $cmds) {
 		switch($cmd) {
 			"SC" { 
@@ -581,14 +596,16 @@ function get-Services($cmds=@("SC")) {
 # $SC_LINES =sc.exe query  |? {$_.Trim()} # empty lines removed
 # $SC_LINES =sc.exe query  |% {$_.Trim()} # lines are trimmed
 # $SC_LINES =sc.exe query  |% {$_.Trim()}|? $_ # lines are trimmed, empty lines removed
+
+				$tArr=@(); $Idx=0; $TestCnt=100000
+				exe-cmd="sc.exe query"  # output goes into $Global:CMD_OUT
+
 				##################################
 				 # -replace('(\w+)=([0-9]\w*)  (.+)','$1=$2; $1_INFO="$3"') -replace('(\w+)=([0-9]\w*).*','$1=$2') 
 				$Global:SC_SERVICES=$(
 				##################################
-				$tArr=@(); $Idx=0; $TestCnt=100000
-				$Global:SC_LINES=((sc.exe query | select -first $TestCnt | Out-String -stream ).Trim() |? {$_} )
-				$Global:SC_LINES -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
-				select -first $TestCnt | % {
+				$Global:CMD_OUT -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
+				Select-Object -first $TestCnt | % {
 					# '[{0}] {1}' -f $IDX, $_
 					if ($_ -like 'SERVICE_NAME=*') {
 						if ($tArr) {  
@@ -609,14 +626,14 @@ function get-Services($cmds=@("SC")) {
 
 			"SC2" {
 				##################################
-				exe-cmd "sc.exe query"
+				exe-cmd "sc.exe query" # output goes into $Global:CMD_OUT
 				$Global:SC_SERVICES=$(
 					##################################
-					$Global:SC_LINES=$Global:CMD_OUT | Out-String -stream ).Trim() |? {$_};
+					
 					# ConvertFrom-StringData $($SC_LINES[0..8] -replace ':','=' -replace '^\(','EXTRA_ATTR=(' -join("`n"))
-					$Idx=0; $prevIdx=0
-					$Global:SC_LINES -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
-					for (($Idx=0), ($prevIdx=0); $Idx -lt $Global:SC_LINES.Count; $Idx++) {
+					$prevIdx=0
+					$Global:CMD_OUT.Trim() |? {$_.Trim()} -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
+					for ( $Idx=0; $Idx -lt $Global:SC_LINES.Count; $Idx++)  {
 						# '[{0}] {1}' -f $IDX, $_
 						if ($Global:SC_LINES[$Idx] -like 'SERVICE_NAME=*') {
 							[pscustomobject] (ConvertFrom-StringData $($Global:SC_LINES[$prevIdx..$($Idx-1)] -replace '^\(','EXTRA_ATTR:(' -join("`n"))  -Delimiter ':')
@@ -882,63 +899,7 @@ function ps-info ( $names) {
 	''
 }
 
+
+
 ps-info @args
 
-
-
-<#
-PS C:\Users\alexe> ([wmisearcher]'select * from meta_class').Get() | ? Name -like '*Connect*' |? Name -notlike 'Win32_Perf*' | select * | ft -auto Name,@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
-
-   Dynasty: __SystemClass
-
-Name                                 Props
-----                                 -----
-MSFT_NCProvClientConnected               6
-MSFT_NetConnectionTimeout                4
-MSFT_NetServiceDifferentPIDConnected     5
-
-   Dynasty: CIM_ManagedSystemElement
-
-Name                    Props
-----                    -----
-CIM_PhysicalConnector      17
-Win32_PortConnector        20
-Win32_NetworkConnection    17
-Win32_ServerConnection     12
-
-   Dynasty: CIM_Component
-
-Name                           Props
-----                           -----
-Win32_SystemNetworkConnections     2
-CIM_LinkHasConnector               2
-CIM_ConnectorOnPackage             3
-
-   Dynasty: CIM_Dependency
-
-Name                    Props
-----                    -----
-Win32_SessionConnection     2
-CIM_ConnectedTo             2
-Win32_ConnectionShare       2
-CIM_DeviceConnection        4
-
-   Dynasty: Win32_OfflineFilesConnectionInfo
-
-Name                             Props
-----                             -----
-
-
-([wmisearcher]$wmidata="select * from Win32_PortConnector").Get() | select -expand properties | ? Value -notlike '' | select * | 
-ft @{Name = "Name"; Expression={if ($_.Name -eq 'Name') { "$([char]0x1b)[1;91m$($_.Name)$([char]0x1b)[0m"} else {$_.Name} }},
-   @{Name = "Value"; Expression={if ($_.Name -eq 'Name') { "$([char]0x1b)[1;91m{0}$([char]0x1b)[0m" -f $_.Value } else {$_.Value} }},
-   @{Name = "Type"; Expression={if ($_.Name -eq 'Name') { "$([char]0x1b)[1;92m"+ $_.Type +"$([char]0x1b)[0m" } else {$_.Type} }},
-   @{Name = "Qualifiers"; Expression={if (($_.Qualifiers).Name.Contains('key')) { "$([char]0x1b)[1;93m"+($_.Qualifiers).Name+"$([char]0x1b)[0m"} else { ($_.Qualifiers).Name } }}
-
-
-([wmisearcher]$wmidata="select * from Win32_PortConnector").Get() | select -first 1 -expand properties | ? Value -notlike '' | select * | 
-ft @{Name = "Name";  Expression={ ("$([char]0x1b)[{0}m{1}" -f $(if($_.Name -eq 'Name'){"1"}else{"0"}),$_.Name) } },
-   Value,Type,
-   @{Name = "Qual";  Expression={ '$([char]0x1b)[{0}m{1}' -f $(if($_.Name -eq 'Name'){"1"}else{"0"}),$(($_.Qualifiers).Name) } }
-
-#>

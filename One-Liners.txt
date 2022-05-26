@@ -495,6 +495,19 @@ Equals
 GetHashCode
 Get
 
+
+#################################################
+# wmisearcherType Accelerators
+# 
+([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select *
+
+([wmisearcher]'select * from meta_class').Get() | select * | ft -auto Name,@{n='SuperClass';e={$_.__SUPERCLASS}},@{n='Dynasty';e={$_.__DYNASTY}},@{n='Props';e={$_.__PROPERTY_COUNT}}
+
+([wmisearcher]'select * from meta_class').Get() | ? Name -notlike '*Perf*' | select * | ft -auto Name,@{n='SuperClass';e={$_.__SUPERCLASS}},@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
+
+([wmisearcher]'select * from meta_class').Get() | ? Name -like '*Process*' |? Name -notlike 'Win32_Perf*' | select * | ft -auto Name,@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
+
+
 #################################################
 # Get Bios details
 # wmisearcher
@@ -512,7 +525,135 @@ $bios.get().Path
 ([wmisearcher]$bios = "Select * from Win32_Bios").Get().SerialNumber
 ([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select -first 1
 Invoke-CimMethod -InputObject (([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select -first 1) -MethodName GetOwner # error - wmi is not accepted, use cim like below
-Invoke-CimMethod -InputObject (gcim -query "select * from Win32_Process where name like 'pwsh%exe'" | select -first 1) -MethodName GetOwner 
+Invoke-CimMethod -InputObject (gcim -query "select * from Win32_Process where name like 'pwsh%exe'" | select -first 1) -MethodName GetOwner \
+
+
+###########################
+###########################
+###########################
+######              #######
+###### WMI SQL WSQL #######
+######              #######
+###########################
+###########################
+###########################
+<#
+
+$WMI_META_PARAM=@{
+	Property=@(
+		"Name"
+		,@{N='PCNT';E={$_.__PROPERTY_COUNT}}
+		,@{N='CLASS';E={$.__CLASS}}
+		,@{N='DERIVATION';E={$.__DERIVATION}}
+		,@{N='DYNASTY';E={$.__DYNASTY}}
+		,@{N='GENUS';E={$.__GENUS}}
+		,@{N='SUPERCLASS';E={$.__SUPERCLASS}}
+		,@{N='NAMESPACE';E={$.__NAMESPACE}}
+		,@{N='PATH';E={$.__PATH}}
+		,@{N='RELPATH';E={$.__RELPATH}}
+	)
+}
+
+https://docs.microsoft.com/en-us/windows/win32/wmisdk/wql-sql-for-wmi
+https://devblogs.microsoft.com/scripting/three-easy-ways-to-use-powershell-and-wql-to-get-wmi-data/
+https://devblogs.microsoft.com/scripting/use-powershell-and-avoid-three-gotchas-with-wql-where-clauses/
+
+WSQL
+"Select * From meta_class Where __Superclass Is Null"
+
+Get-WmiObject Win32_Process | gm
+
+$SQL = "Select Name, Priority, Status, VM, WS, ParentProcessId,ProcessId,ThreadCount,UserModeTime,KernelModeTime,InstallDate,CreationDate,TerminationDate,Caption,Description,CommandLine from WIN32_SHARE_PROCESS"
+$SQL = "Select *from WIN32_SHARE_PROCESS"
+$SQL = "Select Name, Priority,Status,ExecutionState,VM,WS,ParentProcessId,ProcessId,ThreadCount,UserModeTime,KernelModeTime,InstallDate,CreationDate,TerminationDate,Caption,Description,ExecutablePath,CommandLine from Win32_Process where priority >= 11"
+
+$SQL = "Select Name, Priority, Status, VM, WS, ExecutionState, ParentProcessId, CreationDate, ProcessId, Caption, CommandLine from Win32_Process where priority >= 11"
+
+$W32_PROC_FMT=@{
+    Property=@( 'Name', 'Status', @{N='ExecState';E={$_.ExecutionState}}, 'Priority', @{N='PPID';E={$_.ParentProcessId}}, 'ProcessId', 
+    @{N='StartDt';E={$V=$_.CreationDate;'{0}-{1}-{2}' -f $V.Substring(0,4),$V.Substring(4,2),$V.Substring(6,2) }},
+    @{N='StartTm';E={$V=$_.CreationDate;'{0}:{1}:{2}' -f $V.Substring(8,2),$V.Substring(10,2),$V.Substring(12,2) }},
+    'VM', 'WS',
+    @{N='PeakVS';E={$_.PeakVirtualSize}}, @{N='PeakWS';E={$_.PeakWorkingSetSize}},
+    @{N='ReadOpCnt';E={$_.ReadOperationCount}}, @{N='ReadTrCnt';E={$_.ReadTransferCount}},@{N='WrtOpCnt';E={$_.WriteOperationCount}}, @{N='WrtTrCnt';E={$_.WriteTransferCount}}, @{N='OthOpCnt';E={$_.OtherOperationCount}}, @{N='OthTrCnt';E={$_.OtherTransferCount}}, 
+    @{N='Threads';E={$_.ThreadCount}}, @{N='Handles';E={$_.HandleCount}} , 'Handle'
+    @{N='Description';E={if($_.Description){$_.Description}else{$_.Caption}}}, 'ExecutablePath',
+    @{N='PROPERTY_COUNT';E={$_.__PROPERTY_COUNT}},@{N='PATH';E={$.__PATH}},
+    @{N='CLASS';E={$.__CLASS}},@{N='DERIVATION';E={$.__DERIVATION}},@{N='DYNASTY';E={$.__DYNASTY}},
+    @{N='GENUS';E={$.__GENUS}},@{N='SUPERCLASS';E={$.__SUPERCLASS}},@{N='NAMESPACE';E={$.__NAMESPACE}}
+)
+}
+
+$W32_PROC_TBL=@{ Auto=$true; Property='Name','Priority','ProcessID','WS','StartDT','StartTM','PPID','Threads','Handle','ExecutablePath' }
+Get-WmiObject -Query "Select * from Win32_Process" | Select @W32_PROC_FMT | Sort | ft @W32_PROC_TBL
+
+$SQL = "Select * from Win32_Process where priority >= 11"
+
+
+
+# Get-WmiObject -Query $highPriority | Select -First 1 @Prop  
+# Get-WmiObject -Query $SQL | select -first 1 | fl *
+# Get-WmiObject -Query $highPriority | Select -First 1000  @Win32_Process_Param | ft -auto Name,Property,PPID,ProcessID,WS,StartDT,StartTM
+
+
+
+PS C:\Users\alexe> ([wmisearcher]'select * from meta_class').Get() | ? Name -like '*Connect*' |? Name -notlike 'Win32_Perf*' | select * | ft -auto Name,@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
+
+   Dynasty: __SystemClass
+
+Name                                 Props
+----                                 -----
+MSFT_NCProvClientConnected               6
+MSFT_NetConnectionTimeout                4
+MSFT_NetServiceDifferentPIDConnected     5
+
+   Dynasty: CIM_ManagedSystemElement
+
+Name                    Props
+----                    -----
+CIM_PhysicalConnector      17
+Win32_PortConnector        20
+Win32_NetworkConnection    17
+Win32_ServerConnection     12
+
+   Dynasty: CIM_Component
+
+Name                           Props
+----                           -----
+Win32_SystemNetworkConnections     2
+CIM_LinkHasConnector               2
+CIM_ConnectorOnPackage             3
+
+   Dynasty: CIM_Dependency
+
+Name                    Props
+----                    -----
+Win32_SessionConnection     2
+CIM_ConnectedTo             2
+Win32_ConnectionShare       2
+CIM_DeviceConnection        4
+
+   Dynasty: Win32_OfflineFilesConnectionInfo
+
+Name                             Props
+----                             -----
+
+
+([wmisearcher]$wmidata="select * from Win32_PortConnector").Get() | select -expand properties | ? Value -notlike '' | select * | 
+ft @{Name = "Name"; Expression={if ($_.Name -eq 'Name') { "$([char]0x1b)[1;91m$($_.Name)$([char]0x1b)[0m"} else {$_.Name} }},
+   @{Name = "Value"; Expression={if ($_.Name -eq 'Name') { "$([char]0x1b)[1;91m{0}$([char]0x1b)[0m" -f $_.Value } else {$_.Value} }},
+   @{Name = "Type"; Expression={if ($_.Name -eq 'Name') { "$([char]0x1b)[1;92m"+ $_.Type +"$([char]0x1b)[0m" } else {$_.Type} }},
+   @{Name = "Qualifiers"; Expression={if (($_.Qualifiers).Name.Contains('key')) { "$([char]0x1b)[1;93m"+($_.Qualifiers).Name+"$([char]0x1b)[0m"} else { ($_.Qualifiers).Name } }}
+
+
+([wmisearcher]$wmidata="select * from Win32_PortConnector").Get() | select -first 1 -expand properties | ? Value -notlike '' | select * | 
+ft @{Name = "Name";  Expression={ ("$([char]0x1b)[{0}m{1}" -f $(if($_.Name -eq 'Name'){"1"}else{"0"}),$_.Name) } },
+   Value,Type,
+   @{Name = "Qual";  Expression={ '$([char]0x1b)[{0}m{1}' -f $(if($_.Name -eq 'Name'){"1"}else{"0"}),$(($_.Qualifiers).Name) } }
+
+#>
+
+
 
 ########################################
 ########################################
@@ -529,17 +670,6 @@ Invoke-CimMethod -InputObject (gcim -query "select * from Win32_Process where na
 # accounts, groups and servicess
 ([ADSI] "WinNT://$Env:ComputerName").Children | select SchemaClassName,Name,Path
 
-
-#################################################
-# wmisearcherType Accelerators
-# 
-([wmisearcher]"select * from Win32_Process where name like 'pwsh%exe' ").Get() | select *
-
-([wmisearcher]'select * from meta_class').Get() | select * | ft -auto Name,@{n='SuperClass';e={$_.__SUPERCLASS}},@{n='Dynasty';e={$_.__DYNASTY}},@{n='Props';e={$_.__PROPERTY_COUNT}}
-
-([wmisearcher]'select * from meta_class').Get() | ? Name -notlike '*Perf*' | select * | ft -auto Name,@{n='SuperClass';e={$_.__SUPERCLASS}},@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
-
-([wmisearcher]'select * from meta_class').Get() | ? Name -like '*Process*' |? Name -notlike 'Win32_Perf*' | select * | ft -auto Name,@{n='Props';e={$_.__PROPERTY_COUNT}} -groupby @{n='Dynasty';e={$_.__DYNASTY}}
 
 #############################################################
 # OS Info - Users, Groups Services
