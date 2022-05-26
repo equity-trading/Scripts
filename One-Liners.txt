@@ -1352,7 +1352,7 @@ $var=$global:RemoteAddress_MAP; $($var.Keys)[0].GetType()
 #############################################################
 # Print Array
 "args[$(($args).Length)]: $($args -join '; ')""args[$(($args).Length)]: $($args -join '; ')"
-
+$W
 
 
 ##############################
@@ -1363,8 +1363,26 @@ $var=$global:RemoteAddress_MAP; $($var.Keys)[0].GetType()
 ##############################
 ##############################
 
-@{i1=1; i2=2; ht1={k1=11;k2=12};group=@(@{k1=11;k2=12},@{k1=1; k2=2})} | where-object {$_.i2 -eq 2 }
-@{i1=1; i2=2; ht1={k1=11;k2=12};group=@(@{k1=11;k2=12},@{k1=1; k2=2})} | where-object { $g=$_.group; $g.k1 -eq 1 }
+    $Weekdays = @{1 = 'Monday'; 2='Tuesday'; 3='Wednesday'; 4='Thursday'; 5='Friday'}
+    $Weekend  = @{6 = 'Saturday'; 7='Sunday'}
+    $Week=[ordered]@{ 
+        Weekdays=$Weekdays
+        Weekend=$Weekend 
+        WorkDay=@(
+            @{abbr='Mon';dayno=1;name="Monday";},
+            @{abbr='Tue';dayno=2;name="Tuesday";},
+            @{abbr='Wen';dayno=3;name="Wednesday";},
+            @{abbr='Thu';dayno=4;name="Thursday";},
+            @{abbr='Fri';dayno=5;name="Friday";},
+            @{abbr='Sat';dayno=6;name="Saturday";},
+            @{abbr='Sun';dayno=7;name="Sunday";}
+        )
+    }
+
+# To get the same output as in the console, use a subexpression in which you pipe to Out-String. Apply the Trim() method if you want to remove any leading and trailing empty lines.
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_quoting_rules?view=powershell-7.2
+"hashtable:`n$((@{ key = 'value' } | Out-String).Trim())"
+"hashtable:`n$(( $Week | Out-String).Trim())"
 
 ####
 # see https://github.com/PowerShell/PowerShell/issues/13817#issuecomment-712882745
@@ -1494,7 +1512,7 @@ function get-connection-map ([switch] $Get) {
 
 @($Global:RemoteAddrMAP.Keys)[0] | % { $k=$_; '"RemoteAddr":"{0}"' -f $k; ConvertTo-JSON $Global:RemoteAddrMAP.$k  -Compress -Depth 5 }
 
-ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5
+ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5 # keys must be strings
 
 get-connection-map -get; $Global:ConnInfo | ConvertHashtableTo-Object | ft -auto 
 

@@ -1,3 +1,4 @@
+using namespace System.Management.Automation
 # Get-Process WDDriveService,Sysmon,Sysmon,ServiceShell
 
 if (!$Global:Users) { $Global:Users=Get-LocalUser }
@@ -6,8 +7,6 @@ $e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"
 $red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
 $bold="$e[1m";$bold_off="$e[22m";
 $fmt_var="{0,-15}"
-$watch=[System.Diagnostics.Stopwatch]::New()
-$myscript=$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf)
 
 $ServiceCols=@( @{n="Name";e={$_.Name}}
 @{n="Status";e={$_.Status}}
@@ -434,20 +433,96 @@ function get-processes($names,[int[]]$ids) {
 	}
 }
 
+function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
+	$stack=Get-PSCallStack
+	# $stack | ft *
+	# (Get-PSCallStack | gm Arguments).Definition 
+	[string] $FuncLoc=$stack[1].Location -replace ' line ',''
+	[string] $FuncPos=$stack[1].Position
+	[string] $FuncName=$stack[1].Command+'('+ $($stack[1].Arguments -replace '{(.*)}','$1' -replace '(?<=.{50}).+','..' ) + ')' ; # 
+		
+	[string] $CallerLoc=$stack[2].Location -replace ' line ',''
+	[string] $CallerPos=$stack[2].Position
+	[string] $CallerName=$stack[2].Command+'('+ $($stack[2].Arguments -replace '{(.*)}','$1' -replace '(?<=.{50}).+','..' ) + ')' ; # 
+	[string[]] $rows=@()
+	
+	if($Text) { 
+		if (!$noclr) {
+			$Text=$Text -replace ('Error:',"${sc}${errClr}Error${rc}:") -replace ('Warning:',"${sc}${wrnClr}Warning${rc}:")
+		}
+		
+		$rows+=@($Text)
+	}  
+	
+	foreach ($Var in $Vars) {
+		$rows+=@(pvar -Var:$Var -scope:2)
+	}
+	foreach ($Val in $Vals) {
+		$rows+=@(pvar $Val -novar -scope:2)
+	}
+ 
+	if ($rows.Length) {
+		if ($noclr) {
+			$fmt="[{0}] {2}"
+		} else {
+			$fmt="$sc$blu[$ylw{0}$blu] $gry{2}$rc"
+		}
+		$fmt -f $FuncLoc, $FuncName, $( $rows -join(' '))
+	} else {
+		# '[{0} {1}] Called in {2} at {3} as {4}' -f $FuncLoc, $FuncName, $CallerName, $CallerLoc, $CallerPos
+		if ($noclr) {
+			$fmt="[{0}] {1} called at {5} on {3} as {4}"
+		} else {
+			$fmt="$sc$blu[$ylw{0}$blu] $cyn{1}$gry called at $ylw{5}$gry on $ylw{3}$gry as $cyn{4}$rc"
+		}
+		$fmt -f $FuncLoc, $FuncName, $CallerName, $CallerLoc, $CallerPos, $(Get-Date)
+	}
+	if ($stack.Length -gt 10 ) { throw "Stack is too deep : $($stack.Length)." }
+	return
+}
+
+function fnc-start() {
+	
+	if (!$global:myscript) { $global:myscript=Split-Path $MyInvocation.ScriptName -leaf }
+	if (!$global:mywatch) { $global:mywatch=[System.Diagnostics.Stopwatch]::New() }
+    
+
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks."+
+	"Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry "+
+	"| $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $global:myscript, $MyInvocation.ScriptLineNumber,
+		$global:mywatch.Elapsed.milliseconds, $global:mywatch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
+		'$PsBoundParameters', $(@($PsBoundParameters.Keys).Count), 
+		$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
+}
+
+function fnc-stop() {
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
+	$script:watch.Elapsed.milliseconds, $script:watch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
+	'$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
+}
+
+function fnc-test($arg1,$arg2='2',$arg3) {
+	fnc-start
+	$test_var="test"
+	'args' -f $( $args | ConvertTo-Json )
+	
+	'$PsBoundParameters: {0}' -f $( $PsBoundParameters | ConvertTo-Json )
+	fnc-stop
+}
+
 
 function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $mode='array') {
 
 	if(!$quiet) {
-		"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
-	   		$watch.Elapsed.milliseconds,$watch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
-			'$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
 	}
+	$newline=[environment]::NewLine
+	$nl='\n'
 	$exe_watch=[System.Diagnostics.Stopwatch]::New()
 	[string[]] $cmd_arr=$cmd -split(" ")
 	$exe=$cmd_arr[0] 
 	$exe_args=$cmd_arr[1..$($cmd_arr.Count-1)]
-	if (!$exe_watch.IsRunning) { $exe_watch.Start()}
-	$exe_watch.Reset()
+	if (!$exe_watch.IsRunning) { $exe_watch.Reset()}
+	$exe_watch.Start()
 	switch($mode) {
 		'string2' {
 			# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
@@ -455,7 +530,7 @@ function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $
 		}
 		'string' {
 			# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
-			$Global:CMD_OUT=(& $exe $exe_args ) -join "`n"
+			$Global:CMD_OUT=(& $exe $exe_args ) -join "$newline"
 		}
 		'test' {
 			if($maxcount) { $cnt=$maxcount } else { $cnt=10 }
@@ -488,8 +563,8 @@ function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $
 		} else {
 			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"is a string of $($Global:CMD_OUT.Length) symbols"
 			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'Splitting',"first $sample_lines lines"
-			$tmpArr=@($Global:CMD_OUT -split("`n"))
-			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $tmpArr[$_]}
+			$tmpArr=@($Global:CMD_OUT -split("$newline"))
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $($tmpArr[$_] -replace ("$newline","$nl")) }
 			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$tmpArr.Count	
 		}
     }

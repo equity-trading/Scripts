@@ -1,3 +1,4 @@
+# https://github.com/PowerShell/PowerShell/issues/15848
 function Convert-ObjectToHashtable
 {
     <#
@@ -94,5 +95,4 @@ function Convert-ObjectToHashtable
 # requires -Version 3.0 -Modules ImportExcel
 # 
 # Get-Service | Convert-ObjectToHashtable -SortProperty -FlattenArray -ArrayDelimiter ' ' -ReturnAsNewObject | Export-Excel
-
 # Get-ADUser -Identity $env:USERNAME -Properties * |  Convert-ObjectToHashtable -ExcludeEmpty -SortProperty  |  Out-GridView
