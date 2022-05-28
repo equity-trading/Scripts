@@ -1,6 +1,5 @@
 ##################################################
 #  $Global:Users
-$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $myscript=$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf)
 
 if (!$Global:Users) { $Global:Users=Get-LocalUser }
@@ -33,7 +32,7 @@ $Global:EVENTS_EXCL_OUT_COLS=@("Message","Properties","Bookmark","ContainerLog",
 #            Win-Event.ps1 Get-MyWinEvents                 # last 50000 error events, see output in C:\home\data\Reports\Get-Events-2022-05-18.txt
 #            Win-Event.ps1 Get-MyWinEvents -Table -Raw -ExclLogs:("Core","Store") -Top:10 -Pids:1608
 #            Win-Event.ps1 Get-MyWinEvents -List  -Raw -ExclLogs:("Core","Store") -Top:2
-#            Win-Event.ps1 -Hours 1 -All                   # All events during last hour
+#            Win-Event.ps1 -Hours 1                        # All events during last hour
 #            Win-Event.ps1 -Pids:1608 -Group 15
 #            Win-Event.ps1 -Msgs:'SCM Event' -Top:40
 #            Win-Event.ps1 -Days 10 -Warning -Groups 1,2,3 # 10 days of error and warnings, see output in C:\home\data\Reports\Get-Events-2022-05-18-warnings.txt
@@ -93,78 +92,66 @@ $Global:EVENTS_EXCL_OUT_COLS=@("Message","Properties","Bookmark","ContainerLog",
 #       Get-WinEvent -FilterHash @{LogName='*'; Level=1,2} -Max 1 | ConvertTo-JSON
 # ^^^^^^  Use ConvertTo-JSON to read messges ***********
 #       $E=(Get-WinEvent -FilterHash @{LogName='*'; Level=1,2} -Max 1); Get-WinEvent $E.LogName -FilterXPath "*[System[EventRecordID=$($E.RecordID)]]" | ConvertTo-JSON
-<# 
-PS C:\Users\alexe> Get-WinEvent -FilterHashtable @{LogName='*'; Level=1,2} -maxevents 1 | ConvertTo-JSON
-{ "Id": 142,  
-  "Version": 0, 
-  "Qualifiers": null,
-  "Level": 2, "Task": 10,
-  "Opcode": 2,
-  "Keywords": 4611686018427387906,
-  "RecordId": 1814,
-  "ProviderName": "Microsoft-Windows-WinRM",
-  "ProviderId": "a7975c8f-ac13-49f1-87da-5a984a4ab417",
-  "LogName": "Microsoft-Windows-WinRM/Operational",
-  "ProcessId": 21732,
-  "ThreadId": 18412,
-  "MachineName": "Win11-2",
-  "UserId": { "BinaryLength": 12, "AccountDomainSid": null, "Value": "S-1-5-18" },
-  "TimeCreated": "2022-05-20T03:01:30.2834368-04:00",
-  "ActivityId": "fdababc6-67cb-000a-98cc-b2fdcb67d801",
-  "RelatedActivityId": null,
-  "ContainerLog": "Microsoft-Windows-WinRM/Operational",
-  "MatchedQueryIds": [],
-  "Bookmark": {},
-  "LevelDisplayName": "Error",
-  "OpcodeDisplayName": "Stop",
-  "TaskDisplayName": "Response handling",
-  "KeywordsDisplayNames": [ "Client" ],
-  "Properties": [ { "Value": "Enumeration" }, { "Value": 2150858770 } ],
-  "Message": "WSMan operation Enumeration failed, error code 2150858770" }
 
- PS C:\Users\alexe> Get-WinEvent Microsoft-Windows-WinRM/Operational -FilterXPath "*[System[EventRecordID=1814]]" | ConvertTo-JSON
- PS C:\Users\alexe> Get-WinEvent Microsoft-Windows-WinRM* -FilterXPath "*[System[EventRecordID=1814]]" | ConvertTo-JSON
- 
-#>
 
-# $env:__SuppressAnsiEscapeSequences - Suppress Ansi Escape Sequences : https://docs.microsoft.com/en-us/powershell/scripting/whats-new/what-s-new-in-powershell-70?view=powershell-7.2
-$e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"; $strk = "$e[9m"; $nrml="$e[29m"
-$red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
-$att_clr=$red
-$err_clr=$red; $wrn_clr=$ylw2; $log_clr=$cyn2
+function fnc-start() {
+	
+	if (!$global:myscript) { $global:myscript=Split-Path $MyInvocation.ScriptName -leaf }
+	if (!$global:mywatch) { $global:mywatch=[System.Diagnostics.Stopwatch]::New() }
+    
+	$fmt="$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. "+
+	"Called from line $cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" 
+	
+	$fmt -f $MyInvocation.MyCommand, $global:myscript, $MyInvocation.ScriptLineNumber,
+		$global:mywatch.Elapsed.milliseconds, $global:mywatch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $(Get-Date), 
+		'$PsBoundParameters', $(@($PsBoundParameters.Keys).Count), 
+		$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
+}
 
-# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_ansi_terminals?view=powershell-7.2
-$rstClr=$PSStyle.Reset; 
-$errClr=$PSStyle.Formatting.Error;  $alrClr=$PSStyle.Formatting.ErrorAccent
-$wrnClr=$PSStyle.Formatting.Warning; 
-$vrbClr=$PSStyle.Formatting.Verbose;
-$dbgClr=$PSStyle.Formatting.Debug; 
-$hdrClr=$PSStyle.Formatting.TableHeader; $fmtClr=$PSStyle.Formatting.FormatAccent
+function fnc-stop() {
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
+	$script:watch.Elapsed.milliseconds, $script:watch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
+	'$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
+}
 
-$FgRed=$PSStyle.Foreground.Red;                 $BrightRed=$PSStyle.Foreground.BrightRed
-$FgBlack=$PSStyle.Foreground.Black;             $BrightBlack=$PSStyle.Foreground.BrightBlack
-$FgWhite=$PSStyle.Foreground.White;             $BrightWhite=$PSStyle.Foreground.BrightWhite
-$FgMagenta=$PSStyle.Foreground.Magenta;         $BrightMagenta=$PSStyle.Foreground.BrightMagenta
-$FgBlue=$PSStyle.Foreground.Blue;               $BrightBlue=$PSStyle.Foreground.BrightBlue
-$FgCyan=$PSStyle.Foreground.Cyan;               $BrightCyan=$PSStyle.Foreground.BrightCyan
-$FgGreen=$PSStyle.Foreground.Green;             $BrightGreen=$PSStyle.Foreground.BrightGreen
-$FgYellow=$PSStyle.Foreground.Yellow;           $BrightYellow=$PSStyle.Foreground.BrightYellow
+function fnc-test($arg1,$arg2='2',$arg3) {
+	fnc-start
+	$test_var="test"
+	'args' -f $( $args | ConvertTo-Json )
+	
+	'$PsBoundParameters: {0}' -f $( $PsBoundParameters | ConvertTo-Json )
+	fnc-stop
+}
 
-# $Beige=$PSStyle.Foreground.FromRgb(0xf5f5dc); $BgBeige=$PSStyle.Background.FromRgb(0xf5f5dc)
-
-$BgRed=$PSStyle.Background.Red;               $BgBrightRed=$PSStyle.Background.BrightRed
-$BgBlack=$PSStyle.Background.Black;           $BgBrightBlack=$PSStyle.Background.BrightBlack
-$BgWhite=$PSStyle.Background.White;           $BgBrightWhite=$PSStyle.Background.BrightWhite
-$BgMagenta=$PSStyle.Background.Magenta;       $BgBrightMagenta=$PSStyle.Background.BrightMagenta
-$BgBlue=$PSStyle.Background.Blue;             $BgBrightBlue=$PSStyle.Background.BrightBlue
-$BgCyan=$PSStyle.Background.Cyan;             $BgBrightCyan=$PSStyle.Background.BrightCyan
-$BgGreen=$PSStyle.Background.Green;           $BgBrightGreen=$PSStyle.Background.BrightGreen
-$BgYellow=$PSStyle.Background.Yellow;         $BgBrightYellow=$PSStyle.Background.BrightYellow
-
-# $Global:Users |? Sid -like 'S-1-5*'| select -Exclude Description, Password*, *Class, AccountExpires | ft
 
 #############################################################
-# Print Variable
+#
+# Print Variables
+#
+#############################################################
+
+###############################################
+# Convert-HashToString
+function Convert-HashToString([hashtable]$value) {
+	($value.GetEnumerator()|% { 
+		$k=$_.Name; $v=$_.Value; '{0}="{1}";' -f $k, $( 
+			if($v -is [hashtable]){
+				$v.GetEnumerator()|% {'{0}="{1}";' -f $_.Name,$_.Value}
+			} elseif($v -is [array]) {
+				($v|% {
+					$va=$_; 
+					$(if($va -is [hashtable]) {
+						$va.GetEnumerator()|% {'{0}="{1}";' -f $_.Name,$_.Value} 
+					} else {
+						'[{0}]{1}' -f $va.GetType(),$va.ToString() 
+					} )
+				}) -join(",") 
+			} else {
+				'[{0}]{1}' -f $v.GetType(),$v.ToString()
+			}
+		)
+	}) -join(';')  -replace ("\s+",' ')
+}
 	   
 function pval($vals, [int]$max=1000, [switch]$noclr, [int]$depth=2, [string[]]$exclude=("*properties","*class"), [switch]$nocompress, [int]$first=1, [string]$separator="`n") {
 	[string []] $rows=@()
@@ -187,7 +174,7 @@ function pval($vals, [int]$max=1000, [switch]$noclr, [int]$depth=2, [string[]]$e
 function pval($vals, [int]$max,[switch]$noclr,[string]$separator="`n"){
 	[string]$Text=""
 	[int]$Cnt=0
-	foreach ($Obj in pobj $vals) {
+	foreach ($Obj in $vals) {
 		if($Cnt) { $Text+=$separator }
 		$Text+=[string]$(
 			if($Obj.Cut) {
@@ -204,6 +191,27 @@ function pval($vals, [int]$max,[switch]$noclr,[string]$separator="`n"){
 	}
 	return $Text
 }
+
+function parr($arr, [switch]$noclr, $fmt_body="[{0}] {1}", $fmt_join=", ", $fmt_wrap="@( {0} )", $fmt_cut="...") {
+	[string]$body_str=""
+	# $cstr"$e[${color}m$($_.Name)${e}[0m"
+	if ($arr -ne $null) {
+		if(!$noclr) {
+		    $fmt_body=$fmt_body -replace("(${fmt_body[0]}${fmt_body[4]}])","$sc$ylw`$0$rc") ;# -replace(${fmt_body[3]},"$sc$ylw${fmt_body[3]}$rc")
+			$fmt_join="$sc$blu$fmt_join$rc" 
+			<#
+		    $fmt_wrap=$fmt_wrap -replace(${fmt_wrap[1]},"$sc$blu@$ylw${fmt_wrap[1]}$rc") -replace(${fmt_wrap[7]},"$sc$ylw${fmt_wrap[7]}$rc")
+			$fmt_cut="$sc${blu}$fmt_cut$rc"
+			#>
+		}
+		$idx=0
+		"fmt_body:$fmt_body fmt_join:$fmt_join fmt_wrap:$fmt_wrap fmt_cut:$fmt_cut  "  |  Out-Host
+		$body_str=$( ($arr |% { $fmt_body -f $idx++, $( pval $_ -noclr )  } ) -join($fmt_join) )		
+	    $body_str=$( $fmt_wrap -f $($body_str -replace "(?<=.{$max}).+",$fmt_cut) )+"$nc"
+	}
+	return $fmt_wrap -f $body_str
+}
+
 
 function pobj($vals, [int]$max=1000) {
 	[hashtable []] $Rows=@()
@@ -242,7 +250,7 @@ function pobj($vals, [int]$max=1000) {
 			  Type=$Type
 			  Count=$Count
 			  Length=$Str.Length
-			  Cut=$($str.Length -gt $max)
+			  Cut=$($Str.Length -gt $max)
 			  Str=$Str
 			}
 		}
@@ -250,31 +258,12 @@ function pobj($vals, [int]$max=1000) {
 	return $Rows
 }
 
-function parr($arr, [switch]$noclr, $fmt_body="[{0}] {1}", $fmt_join=", ", $fmt_wrap="@( {0} )", $fmt_cut="...") {
-	[string]$body_str=""
-	# $cstr"$e[${color}m$($_.Name)${e}[0m"
-	if ($arr -ne $null) {
-		if(!$noclr) {
-		    $fmt_body=$fmt_body -replace("(${fmt_body[0]}${fmt_body[4]}])","$sc$ylw`$0$rc") ;# -replace(${fmt_body[3]},"$sc$ylw${fmt_body[3]}$rc")
-			$fmt_join="$sc$blu$fmt_join$rc" 
-			<#
-		    $fmt_wrap=$fmt_wrap -replace(${fmt_wrap[1]},"$sc$blu@$ylw${fmt_wrap[1]}$rc") -replace(${fmt_wrap[7]},"$sc$ylw${fmt_wrap[7]}$rc")
-			$fmt_cut="$sc${blu}$fmt_cut$rc"
-			#>
-		}
-		$idx=0
-		"fmt_body:$fmt_body fmt_join:$fmt_join fmt_wrap:$fmt_wrap fmt_cut:$fmt_cut  "  |  Out-Host
-		$body_str=$( ($arr |% { $fmt_body -f $idx++, $( pval $_ -noclr )  } ) -join($fmt_join) )		
-	    $body_str=$( $fmt_wrap -f $($body_str -replace "(?<=.{$max}).+",$fmt_cut) )+"$nc"
-	}
-	return $fmt_wrap -f $body_str
-}
-
 function pvar($val,[string] $var,[switch] $noclr,[switch] $novar,[string]$scope=1) {
 	# pargs
     [string] $str=""
 	[int]    $size=0
 	[string] $type=""
+	$VarInfo=@{}
 	if($var) {
 		switch -wildcard ($var) { '*:*' { $Scope=$var -replace ':.*',''; $Var=$Var -replace '.*:',''; } } 
 		$val=Get-Variable -Name $Var -Scope $Scope -ValueOnly -ErrorAction "SilentlyContinue"
@@ -284,7 +273,10 @@ function pvar($val,[string] $var,[switch] $noclr,[switch] $novar,[string]$scope=
 		
 		# 'scope:{0} var:{1} val:{2}' -f $scope,$var,$val
 	}
+	
 	if ($val -ne $null ) { 
+		$VarInfo=(pobj $val)[0]
+		<#
 		if($val -is [hashtable]) { 
 			$size=@($val.Keys).Length
 			$str=$(pval -vals:$val -noclr:$noclr)
@@ -315,8 +307,10 @@ function pvar($val,[string] $var,[switch] $noclr,[switch] $novar,[string]$scope=
 			$size=$val.Length
 			$str=$(pval -vals:$val -noclr:$noclr)
 		}
-	} 
-	if ($novar) {
+		#>
+	}
+	
+	if ($novar -or $val -eq $null) {
 		if ($noclr) {
 			$fmt="'[{0}({1}):{2}]'"
 		} else {
@@ -338,7 +332,9 @@ function pvar($val,[string] $var,[switch] $noclr,[switch] $novar,[string]$scope=
 			$fmt="$sc$grn{0}$ylw[$cyn{1}$ylw($red{2}$ylw)]:{3}$rc"
 		}
 		if ($scope -notmatch '[0-9]') { $var="${scope}:${var}"}
-		$fmt -f $var, $type, $size, $str
+		
+		$fmt -f $var, $VarInfo.Type, $(if( $VarInfo.Type -eq 'array'){"$VarInfo.Count"}else{"$VarInfo.Length"} ) , $VarInfo.Cut
+		# $VarInfo.Type; $VarInfo.Count ; $VarInfo.Length ; $VarInfo.Cut ; $VarInfo.Str
 	}
 }
 
@@ -393,6 +389,74 @@ function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
 
 # Remove-Alias pargs -ErrorAction "SilentlyContinue"
 New-Alias -Name pargs -Value 'DbgInfo-Func' -ErrorAction "SilentlyContinue"
+
+
+###############################################
+# CodeExecutor
+function CodeExecutor([string] $Command="Get-Events",[switch] $Measure) {
+#   [CmdletBinding(SupportsShouldProcess = $true,ConfirmImpact = 'Medium')]
+#	write-output '[CodeExecutor] -- start ----------------------'
+# 	write-output "command: $command; args[$(($args).length)] : $($args -join ' ')"    
+#	Invoke-Command -ScriptBlock { & $command @args} -ArgumentList $args
+    # Invoke the script block with `&`
+	# write-output '[CodeExecutor] -- end ----------------------'
+
+#   'args[2]:{0} | args[3]:{1}' -f (($args[2]) -join(',')),(($args[3]) -join(','))
+	pargs
+    # "[{0}] {1} arg{2} {3}" -f $MyInvocation.MyCommand, $PSBoundParameters.Count,$(if($PSBoundParameters.Count -ne 1) {"s"}),(($PSBoundParameters.Keys|%{ "-{0}:{1}" -f $_,($PSBoundParameters[$_] -join(","))} ) -join(" "))
+	if ($command) {
+		if ($Measure) {
+			Measure-Command -Expression { & $command @args  | Out-Default }
+		} else {
+			& $command @args
+		}	
+	}
+}
+
+
+###############################################
+##
+## VARIABLES 
+##
+##############################################
+
+# $env:__SuppressAnsiEscapeSequences - Suppress Ansi Escape Sequences : https://docs.microsoft.com/en-us/powershell/scripting/whats-new/what-s-new-in-powershell-70?view=powershell-7.2
+$e=[char]27; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"
+$nl=[char]10; $bold="$e[1m";$bold_off="$e[22m"; $strk = "$e[9m"; $nrml="$e[29m"
+$red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
+$fmt_var="{0,-15}"
+$att_clr=$red; $err_clr=$red; $wrn_clr=$ylw2; $log_clr=$cyn2
+
+# https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_ansi_terminals?view=powershell-7.2
+$rstClr=$PSStyle.Reset; 
+$errClr=$PSStyle.Formatting.Error;  $alrClr=$PSStyle.Formatting.ErrorAccent
+$wrnClr=$PSStyle.Formatting.Warning; 
+$vrbClr=$PSStyle.Formatting.Verbose;
+$dbgClr=$PSStyle.Formatting.Debug; 
+$hdrClr=$PSStyle.Formatting.TableHeader; $fmtClr=$PSStyle.Formatting.FormatAccent
+
+$FgRed=$PSStyle.Foreground.Red;                 $BrightRed=$PSStyle.Foreground.BrightRed
+$FgBlack=$PSStyle.Foreground.Black;             $BrightBlack=$PSStyle.Foreground.BrightBlack
+$FgWhite=$PSStyle.Foreground.White;             $BrightWhite=$PSStyle.Foreground.BrightWhite
+$FgMagenta=$PSStyle.Foreground.Magenta;         $BrightMagenta=$PSStyle.Foreground.BrightMagenta
+$FgBlue=$PSStyle.Foreground.Blue;               $BrightBlue=$PSStyle.Foreground.BrightBlue
+$FgCyan=$PSStyle.Foreground.Cyan;               $BrightCyan=$PSStyle.Foreground.BrightCyan
+$FgGreen=$PSStyle.Foreground.Green;             $BrightGreen=$PSStyle.Foreground.BrightGreen
+$FgYellow=$PSStyle.Foreground.Yellow;           $BrightYellow=$PSStyle.Foreground.BrightYellow
+
+# $Beige=$PSStyle.Foreground.FromRgb(0xf5f5dc); $BgBeige=$PSStyle.Background.FromRgb(0xf5f5dc)
+
+$BgRed=$PSStyle.Background.Red;               $BgBrightRed=$PSStyle.Background.BrightRed
+$BgBlack=$PSStyle.Background.Black;           $BgBrightBlack=$PSStyle.Background.BrightBlack
+$BgWhite=$PSStyle.Background.White;           $BgBrightWhite=$PSStyle.Background.BrightWhite
+$BgMagenta=$PSStyle.Background.Magenta;       $BgBrightMagenta=$PSStyle.Background.BrightMagenta
+$BgBlue=$PSStyle.Background.Blue;             $BgBrightBlue=$PSStyle.Background.BrightBlue
+$BgCyan=$PSStyle.Background.Cyan;             $BgBrightCyan=$PSStyle.Background.BrightCyan
+$BgGreen=$PSStyle.Background.Green;           $BgBrightGreen=$PSStyle.Background.BrightGreen
+$BgYellow=$PSStyle.Background.Yellow;         $BgBrightYellow=$PSStyle.Background.BrightYellow
+
+# $Global:Users |? Sid -like 'S-1-5*'| select -Exclude Description, Password*, *Class, AccountExpires | ft
+
 
 <#
 ###############################################
@@ -461,186 +525,20 @@ function Get-XmlEvent {
     $Global:EVENTS=Get-WinEvent -LogName $global:LOGS -FilterXPath $Global:FILTERXPATH -MaxEvents $MaxEvents -ea 0 		
 }
 #>
-	
+
+
 ###############################################
-# CodeExecutor
-function CodeExecutor([string] $Command="Get-Events",[switch] $Measure) {
-#   [CmdletBinding(SupportsShouldProcess = $true,ConfirmImpact = 'Medium')]
-#	write-output '[CodeExecutor] -- start ----------------------'
-# 	write-output "command: $command; args[$(($args).length)] : $($args -join ' ')"    
-#	Invoke-Command -ScriptBlock { & $command @args} -ArgumentList $args
-    # Invoke the script block with `&`
-	# write-output '[CodeExecutor] -- end ----------------------'
+##
+## BUSINESS FUNCTIONS
+##
+##############################################
 
-#   'args[2]:{0} | args[3]:{1}' -f (($args[2]) -join(',')),(($args[3]) -join(','))
-	pargs
-    # "[{0}] {1} arg{2} {3}" -f $MyInvocation.MyCommand, $PSBoundParameters.Count,$(if($PSBoundParameters.Count -ne 1) {"s"}),(($PSBoundParameters.Keys|%{ "-{0}:{1}" -f $_,($PSBoundParameters[$_] -join(","))} ) -join(" "))
 
-    if ($Measure) {
-		Measure-Command -Expression { & $command @args  | Out-Default }
-	} else {
-		& $command @args
-	}
-}
-
-##########################################
-# Format-TableMessages
-function Format-TableMessages ([int[]] $Groups, [string[]] $ExclLogs, [string] $Msgs, [int[]] $Pids ) {
-	pargs
-	if (!$Groups) {$Groups=1..$Global:EVENT_GROUPS.Count}
-	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
-	$TotEvents=$Global:EVENTS.Length
-	$TotGroups=$Groups.Length
-	$No=0
-	$FilterArr=@()
-	if ($ExclLogs) { $FilterArr+=@('$ExclLogs -notcontains $_.Log') }
-	if ($Msgs)     { $FilterArr+=@('$_.Message -like $Msgs') }
-	if ($Pids)     { $FilterArr+=@('($_.ProcessID -eq {0})' -f $($Pids -join (' -or $_.ProcessID -eq ')) ) }
-	
-	if ($FilterArr.Length) { 
-		$FilterStr='( {0} )' -f $($FilterArr -join (') -and ('))
-	} else {
-		$FilterStr='$_.MsgNo -gt 0'
-		pargs 'No Filters'
-	}
-	pargs -Vars:FilterStr,Groups
-	$FilterBlock=[scriptblock]::Create( $FilterStr )
-	foreach($Group in $Groups) {
-		$No++
-		$TotMessages=$($Global:EVENT_GROUPS[$($Group-1)].Group).Length
-		pargs $('[{0}/{1}] Printing {2} message{3} of the group #{4}' -f $No, $TotGroups, $TotMessages, $(if($TotMessages -gt 1) {'s'}), $Group )
-		if ($Group -gt $TotGroupedEvents) {
-			pargs $('Warning: Group {0} does not exists, group number {0} must not exceed total number of groups {1}' -f $Group,$TotGroupedEvents)
-			continue
-		}
-		$Global:EVENT_GROUPS[$($Group-1)].Group | Where-Object $FilterBlock | ft TimeCreated,ProcessId,User,Log,LogType,Provider,Lvl,Id,Version,Level,Task,Opcode,Keywords,RecordId,Message2
-	}
-}
-
-##########################################
-# Format-EventsGroupList
-function Format-EventsGroupList ([int[]] $Groups=1, [int[]] $Messages=1) {
-	pargs
-	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
-	$TotEvents=$Global:EVENTS.Length
-	$TotGroups=$Groups.Length
-	$TotMessages=$Messages.Length
-	# '[{0}] Printing {1} of {2} group{3}: {4}' -f $MyInvocation.MyCommand, $TotGroups, $TotGroupedEvents, $(if($TotGroupedEvents -gt 1) {'s'}), $($Groups -join (','))
-	$No=0
-	foreach($Group in $Groups) {
-		$No++
-		pargs $('[{0}/{1}] Printing {2} message{3} of {4} group' -f $No, $TotGroups, $($Messages -join (',')), $(if($TotMessages -gt 1) {'s'}), $Group )
-		if ($Group -gt $TotGroupedEvents) {
-			pargs $('Warning: Group {0} does not exists, group number {0} must not exceed total number of groups {1}' -f $Group,$TotGroupedEvents)
-			continue
-		}
-		Format-EventsGroupMsgList -Group $Group -Messages $Messages
-	}
-}
-
-##########################################
-# Format-EventsGroupMsgList
-function Format-EventsGroupMsgList ([int] $Group=1, [int[]] $Messages=1,[switch] $UseCache) {
-    # '[{0}] {1} arg{2} {3}' -f $MyInvocation.MyCommand, $PSBoundParameters.Count,$(if($PSBoundParameters.Count -ne 1) {'s'}),(($PSBoundParameters.Keys|%{ '-{0}:{1}' -f $_,($PSBoundParameters[$_] -join(','))} ) -join(' '))
-	pargs
-	if (!$Group) {
-		'[{0}] Error: $Group parameter is missing' -f $MyInvocation.MyCommand
-		return
-	}
-	
-	if (!$TotMessages) {
-		'[{0}] Error: $Messages parameter is missing, $Group is {1}' -f $MyInvocation.MyCommand, $Group
-		return
-	}
-
-	Format-EventsGroupTable -Skip $Group
-	
-	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
-	$TotEvents=$Global:EVENTS.Count
-	$TotMessages=$Messages.Length
-
-	if ($Group -gt $TotGroupedEvents) {
-		pargs $('Error: Group Number {0} must not exceed total number of groups {1}' -f $Group, $TotGroupedEvents)
-		return
-	}
-	$GrpIdx=$($Group-1)
-	$TotGrpMsg=$($Global:EVENT_GROUPS[$GrpIdx].Group).Length
-	
-	# '[{0}] Group No {1}. Printing {2} out of {3} message{4}: {5}' -f $MyInvocation.MyCommand, $Group, $TotMessages, $TotGrpMsg, $(if($TotGrpMsg -gt 1) {'s'}), $($Messages -join (','))	
-	$MessageNo=0
-	foreach($MsgNo in $Messages) {
-		$MessageNo++
-		if ($MsgNo -gt $TotGrpMsg) {
-			pargs $('Warning: Group message {0} does not exists, it must not exceed total group''s message number{1}' -f $MsgNo, $TotGrpMsg)
-			continue
-		}
-		$MsgNo=$Global:EVENT_GROUPS[$GrpIdx].Group[$($MsgNo-1)].MsgNo;
-		pargs $('{0} of {1} message{2} - $Global:EVENTS[{3}]' -f $MessageNo, $TotMessages, $(if($TotMessages -gt 1) {'s'}), $MsgNo )
-		Format-EventsList $MsgNo
-	}
-}
-
-##########################################
-# Format-EventsList
-function Format-EventsList ( [int[]] $MsgNo) {
-    pargs
-	$pad=1
-	foreach ($No in $MsgNo) {
-		$E=$Global:EVENTS[$($No-1)]
-		$E.ToXml() -replace("><",">`n<") -split("`n")|% { 
-			$str=$_
-			if($str -match "^</.*>") {$pad-=2}
-			"{0,$pad}{1}" -f "","$str"
-			if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>|^[^<]")) {$pad+=2} 
-		}
-	}
-}
-
-##########################################
-# Format-EventsGroupTable
-function Format-EventsGroupTable ([int]$First=1, [int]$Skip=1 ) {
-	pargs
-	# 'Grouping {0} events into $Global:EVENT_GROUPS ...' -f $Global:EVENTS.Length
-	$TotEvents=$Global:EVENTS.Length
-	
-	if ($Global:EVENT_GROUPS.Length -le 0)  { 
-		pargs 'Warning: $Global:EVENT_GROUPS array is empty'
-		return 
-	}
-	if ( $Skip -le $Global:EVENT_GROUPS.Length ) {
-		pargs $('Printing {0} of {1} groups starting from {2}' -f $First, $Global:EVENT_GROUPS.Length,$Skip)
-		$Skip--
-
-		$Global:PrintCmd={
-		& $Global:SetCondScriptCmd
-		'$Global:CondScript is {0}' -f $Global:CondScript;
-		$Global:Result=$Global:EVENT_GROUPS | Where-Object $Global:CondScript
-		$Global:Result | Select-Object -First $Global:Top -Property $Global:EVENT_GROUPS_OUT_COLS -ExcludeProperty $Global:EVENT_GROUPS_EXCL_COLS | ft -auto * 
-
-		'{0} of {1} $Global:EVENT_GROUPS object{2} filtered into $Global:Result' -f $Global:Result.Count,$Global:EVENT_GROUPS.Count,$( if($Global:Result.Count -ne 1){'s'} )
-		'Top {0} of {1} $Global:Result object{2} printed into the above table' -f $Global:Top,$Global:Result.Count,$( if($Global:Top -ne 1){'s'} )
-		
-		$GrpIdx=$($Global:Result[0].Grp-1)
-		$MsgIdx=$Global:EVENT_GROUPS[$GrpIdx].Group[0].MsgNo
-		'Helpers:'
-		'& $Global:PrintCmd'
-		'$Global:Result[0] | fl * '
-		'$Global:EVENT_GROUPS[{0}] | ft; $Global:EVENTS[{1}] | fl * ' -f $GrpIdx,  $MsgIdx
-		''
-		}
-		& $Global:PrintCmd
-		
-		$Global:Result=$Global:EVENT_GROUPS | Where-Object $Global:CondScript |
-			Select-Object -Skip $Skip -First $First -ExcludeProperty          |
-            ft -auto *
-	} else {
-		pargs $('Error: Group Number {0} must be smaller than total amount of groups {1}' -f $Skip, $Global:EVENT_GROUPS.Length)
-	}
-}
-
-###################################################
-## MyWinEvents       
-#######################
+###############################################
+##
+## MyWinEvents Implementation       
+##
+##############################################
 
 ####################################################
 # Get-MyWinEvents
@@ -659,8 +557,10 @@ function Get-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data
 		     '$Global:EVENTS_COUNT',$Global:EVENTS_COUNT | Out-Host
 	}
 #>
+
 	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), 
 	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks  | Out-Host
+	
 	$start_tm = Get-Date
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on ${ylw}{3}${blu}:$cyn{4}$gry at $ylw{5}$gry | $ylw{6}$blu[$ylw{7}$blu]${gry}: $ylw{8}$gry. $rc" -f $MyInvocation.MyCommand.Name, 
 		$myscript,$(&{$MyInvocation.ScriptLineNumber}),$myscript,$MyInvocation.ScriptLineNumber, $start_tm, 
@@ -966,29 +866,175 @@ function Get-PrintWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $D
 	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
 	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
 }
-###################################################
+
+
+###############################################
+##
 ## End Of MyWinEvents       
-#######################
-function ConvertTo-String([hashtable]$value) {
-	($value.GetEnumerator()|% { 
-		$k=$_.Name; $v=$_.Value; '{0}="{1}";' -f $k, $( 
-			if($v -is [hashtable]){
-				$v.GetEnumerator()|% {'{0}="{1}";' -f $_.Name,$_.Value}
-			} elseif($v -is [array]) {
-				($v|% {
-					$va=$_; 
-					$(if($va -is [hashtable]) {
-						$va.GetEnumerator()|% {'{0}="{1}";' -f $_.Name,$_.Value} 
-					} else {
-						'[{0}]{1}' -f $va.GetType(),$va.ToString() 
-					} )
-				}) -join(",") 
-			} else {
-				'[{0}]{1}' -f $v.GetType(),$v.ToString()
-			}
-		)
-	}) -join(';')  -replace ("\s+",' ')
+##
+##############################################
+
+
+
+###############################################
+##
+## Other Functions
+##
+##############################################
+
+
+##########################################
+# Format-TableMessages
+function Format-TableMessages ([int[]] $Groups, [string[]] $ExclLogs, [string] $Msgs, [int[]] $Pids ) {
+	pargs
+	if (!$Groups) {$Groups=1..$Global:EVENT_GROUPS.Count}
+	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
+	$TotEvents=$Global:EVENTS.Length
+	$TotGroups=$Groups.Length
+	$No=0
+	$FilterArr=@()
+	if ($ExclLogs) { $FilterArr+=@('$ExclLogs -notcontains $_.Log') }
+	if ($Msgs)     { $FilterArr+=@('$_.Message -like $Msgs') }
+	if ($Pids)     { $FilterArr+=@('($_.ProcessID -eq {0})' -f $($Pids -join (' -or $_.ProcessID -eq ')) ) }
+	
+	if ($FilterArr.Length) { 
+		$FilterStr='( {0} )' -f $($FilterArr -join (') -and ('))
+	} else {
+		$FilterStr='$_.MsgNo -gt 0'
+		pargs 'No Filters'
+	}
+	pargs -Vars:FilterStr,Groups
+	$FilterBlock=[scriptblock]::Create( $FilterStr )
+	foreach($Group in $Groups) {
+		$No++
+		$TotMessages=$($Global:EVENT_GROUPS[$($Group-1)].Group).Length
+		pargs $('[{0}/{1}] Printing {2} message{3} of the group #{4}' -f $No, $TotGroups, $TotMessages, $(if($TotMessages -gt 1) {'s'}), $Group )
+		if ($Group -gt $TotGroupedEvents) {
+			pargs $('Warning: Group {0} does not exists, group number {0} must not exceed total number of groups {1}' -f $Group,$TotGroupedEvents)
+			continue
+		}
+		$Global:EVENT_GROUPS[$($Group-1)].Group | Where-Object $FilterBlock | ft TimeCreated,ProcessId,User,Log,LogType,Provider,Lvl,Id,Version,Level,Task,Opcode,Keywords,RecordId,Message2
+	}
 }
+
+##########################################
+# Format-EventsGroupList
+function Format-EventsGroupList ([int[]] $Groups=1, [int[]] $Messages=1) {
+	pargs
+	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
+	$TotEvents=$Global:EVENTS.Length
+	$TotGroups=$Groups.Length
+	$TotMessages=$Messages.Length
+	# '[{0}] Printing {1} of {2} group{3}: {4}' -f $MyInvocation.MyCommand, $TotGroups, $TotGroupedEvents, $(if($TotGroupedEvents -gt 1) {'s'}), $($Groups -join (','))
+	$No=0
+	foreach($Group in $Groups) {
+		$No++
+		pargs $('[{0}/{1}] Printing {2} message{3} of {4} group' -f $No, $TotGroups, $($Messages -join (',')), $(if($TotMessages -gt 1) {'s'}), $Group )
+		if ($Group -gt $TotGroupedEvents) {
+			pargs $('Warning: Group {0} does not exists, group number {0} must not exceed total number of groups {1}' -f $Group,$TotGroupedEvents)
+			continue
+		}
+		Format-EventsGroupMsgList -Group $Group -Messages $Messages
+	}
+}
+
+##########################################
+# Format-EventsGroupMsgList
+function Format-EventsGroupMsgList ([int] $Group=1, [int[]] $Messages=1,[switch] $UseCache) {
+    # '[{0}] {1} arg{2} {3}' -f $MyInvocation.MyCommand, $PSBoundParameters.Count,$(if($PSBoundParameters.Count -ne 1) {'s'}),(($PSBoundParameters.Keys|%{ '-{0}:{1}' -f $_,($PSBoundParameters[$_] -join(','))} ) -join(' '))
+	pargs
+	if (!$Group) {
+		'[{0}] Error: $Group parameter is missing' -f $MyInvocation.MyCommand
+		return
+	}
+	
+	if (!$TotMessages) {
+		'[{0}] Error: $Messages parameter is missing, $Group is {1}' -f $MyInvocation.MyCommand, $Group
+		return
+	}
+
+	Format-EventsGroupTable -Skip $Group
+	
+	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
+	$TotEvents=$Global:EVENTS.Count
+	$TotMessages=$Messages.Length
+
+	if ($Group -gt $TotGroupedEvents) {
+		pargs $('Error: Group Number {0} must not exceed total number of groups {1}' -f $Group, $TotGroupedEvents)
+		return
+	}
+	$GrpIdx=$($Group-1)
+	$TotGrpMsg=$($Global:EVENT_GROUPS[$GrpIdx].Group).Length
+	
+	# '[{0}] Group No {1}. Printing {2} out of {3} message{4}: {5}' -f $MyInvocation.MyCommand, $Group, $TotMessages, $TotGrpMsg, $(if($TotGrpMsg -gt 1) {'s'}), $($Messages -join (','))	
+	$MessageNo=0
+	foreach($MsgNo in $Messages) {
+		$MessageNo++
+		if ($MsgNo -gt $TotGrpMsg) {
+			pargs $('Warning: Group message {0} does not exists, it must not exceed total group''s message number{1}' -f $MsgNo, $TotGrpMsg)
+			continue
+		}
+		$MsgNo=$Global:EVENT_GROUPS[$GrpIdx].Group[$($MsgNo-1)].MsgNo;
+		pargs $('{0} of {1} message{2} - $Global:EVENTS[{3}]' -f $MessageNo, $TotMessages, $(if($TotMessages -gt 1) {'s'}), $MsgNo )
+		Format-EventsList $MsgNo
+	}
+}
+
+##########################################
+# Format-EventsList
+function Format-EventsList ( [int[]] $MsgNo) {
+    pargs
+	$pad=1
+	foreach ($No in $MsgNo) {
+		$E=$Global:EVENTS[$($No-1)]
+		$E.ToXml() -replace("><",">`n<") -split("`n")|% { 
+			$str=$_
+			if($str -match "^</.*>") {$pad-=2}
+			"{0,$pad}{1}" -f "","$str"
+			if( -not ($str -replace "'[^']+'","'X'" -replace '"[^"]+"','"X"' -match "<[^>]*>[^<]*</[^ ].*>|<.*/>|^</.*>|^[^<]")) {$pad+=2} 
+		}
+	}
+}
+
+##########################################
+# Format-EventsGroupTable
+function Format-EventsGroupTable ([int]$First=1, [int]$Skip=1 ) {
+	pargs
+	# 'Grouping {0} events into $Global:EVENT_GROUPS ...' -f $Global:EVENTS.Length
+	$TotEvents=$Global:EVENTS.Length
+	
+	if ($Global:EVENT_GROUPS.Length -le 0)  { 
+		pargs 'Warning: $Global:EVENT_GROUPS array is empty'
+		return 
+	}
+	if ( $Skip -le $Global:EVENT_GROUPS.Length ) {
+		pargs $('Printing {0} of {1} groups starting from {2}' -f $First, $Global:EVENT_GROUPS.Length,$Skip)
+		$Skip--
+
+		$Global:PrintCmd={
+			& $Global:SetCondScriptCmd
+			'$Global:CondScript is {0}' -f $Global:CondScript;
+			$Global:Result=$Global:EVENT_GROUPS | Where-Object $Global:CondScript
+			$Global:Result | Select-Object -First $Global:Top -Property $Global:EVENT_GROUPS_OUT_COLS -ExcludeProperty $Global:EVENT_GROUPS_EXCL_COLS | ft -auto * 
+
+			'{0} of {1} $Global:EVENT_GROUPS object{2} filtered into $Global:Result' -f $Global:Result.Count,$Global:EVENT_GROUPS.Count,$( if($Global:Result.Count -ne 1){'s'} )
+			'Top {0} of {1} $Global:Result object{2} printed into the above table' -f $Global:Top,$Global:Result.Count,$( if($Global:Top -ne 1){'s'} )
+			
+			$GrpIdx=$($Global:Result[0].Grp-1)
+			$MsgIdx=$Global:EVENT_GROUPS[$GrpIdx].Group[0].MsgNo
+			'Helpers:'
+			'& $Global:PrintCmd'
+			'$Global:Result[0] | fl * '
+			'$Global:EVENT_GROUPS[{0}] | ft; $Global:EVENTS[{1}] | fl * ' -f $GrpIdx,  $MsgIdx
+			''
+		}
+		& $Global:PrintCmd
+		
+	} else {
+		pargs $('Error: Group Number {0} must be smaller than total amount of groups {1}' -f $Skip, $Global:EVENT_GROUPS.Length)
+	}
+}
+
 ###############################################
 # Group-WinEvents
 function Group-WinEvents () {
@@ -1261,15 +1307,58 @@ $Global:Result  | Select-Object -First $Global:Top -Property $Cols -ExcludePrope
 
 # $PSBoundParameters.Remove('command')
 # CodeExecutor @PsBoundParameters 
-$stopwatch.Restart()
 
+
+pargs
+
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew() # TBD: replace it in MyWinEvents implementation with pargs
+
+<#
+$stopwatch.Restart()
 "$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
    $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+#>
 
 CodeExecutor @args
 
+<#
 "$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Elapsed: $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
    $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
-
 $stopwatch.Stop()
+#>
 
+
+
+<# 
+PS C:\Users\alexe> Get-WinEvent -FilterHashtable @{LogName='*'; Level=1,2} -maxevents 1 | ConvertTo-JSON
+{ "Id": 142,  
+  "Version": 0, 
+  "Qualifiers": null,
+  "Level": 2, "Task": 10,
+  "Opcode": 2,
+  "Keywords": 4611686018427387906,
+  "RecordId": 1814,
+  "ProviderName": "Microsoft-Windows-WinRM",
+  "ProviderId": "a7975c8f-ac13-49f1-87da-5a984a4ab417",
+  "LogName": "Microsoft-Windows-WinRM/Operational",
+  "ProcessId": 21732,
+  "ThreadId": 18412,
+  "MachineName": "Win11-2",
+  "UserId": { "BinaryLength": 12, "AccountDomainSid": null, "Value": "S-1-5-18" },
+  "TimeCreated": "2022-05-20T03:01:30.2834368-04:00",
+  "ActivityId": "fdababc6-67cb-000a-98cc-b2fdcb67d801",
+  "RelatedActivityId": null,
+  "ContainerLog": "Microsoft-Windows-WinRM/Operational",
+  "MatchedQueryIds": [],
+  "Bookmark": {},
+  "LevelDisplayName": "Error",
+  "OpcodeDisplayName": "Stop",
+  "TaskDisplayName": "Response handling",
+  "KeywordsDisplayNames": [ "Client" ],
+  "Properties": [ { "Value": "Enumeration" }, { "Value": 2150858770 } ],
+  "Message": "WSMan operation Enumeration failed, error code 2150858770" }
+
+ PS C:\Users\alexe> Get-WinEvent Microsoft-Windows-WinRM/Operational -FilterXPath "*[System[EventRecordID=1814]]" | ConvertTo-JSON
+ PS C:\Users\alexe> Get-WinEvent Microsoft-Windows-WinRM* -FilterXPath "*[System[EventRecordID=1814]]" | ConvertTo-JSON
+ 
+#>

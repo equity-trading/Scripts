@@ -186,13 +186,121 @@ Get-WmiObject -Query "select * from win32_service where name like '$service_name
 ########################################
 ########################################
 #######                         ########
-#######    Scheduled Tasks     ########
+#######   Scheduled Tasks       ########
+#######   Autoruns              ########
+#######   Run Automatically     ########
 #######                         ########
 ########################################
 ########################################
 
-#########################################
-# List programs which start automatically in registry:
+#####################
+# schtasks.exe 
+# schtasks.exe /Query /V /FO CSV
+
+$SCHEDULED_ARR=schtasks.exe /Query /V /FO CSV |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } | ConvertFrom-Csv
+$SCHEDULED_ARR.Count # >> 392
+
+
+# 'Task To Run', 'Run As User', 'Start In', 'Start Date', 'Start Time', 'End Date', 'Days', 'Months','Author', 'Comment Idle Time'
+$OutCols=@( 'TaskName',
+  @{N='LastRun';E={[DateTime]$_.'Last Run Time'}},
+  @{N='TaskToRun';E={$_.'Task To Run'}},
+  @{N='RunAsUser';E={$_.'Run As User'}},
+  @{N='PowerMgmt';E={$_.'Power Management'}},
+  @{N='NextRun';E={[DateTime]$_.'Next Run Time'}},
+  @{N='ScheduleType';E={ switch -wildcard ($_.'Schedule Type') { 
+      'At idle time' {'IDLE'} 
+	  'At logon time' {'LOGON'} 
+	  'At system start up' {'BOOT'}  
+      'Daily*' {'DAILY'} 
+	  'On demand only' {'ONDEMAND'} 
+	  'One Time Only' {'ONCE'}  'One Time Only, Hourly*' {'EVERY HOUR'} 'One Time Only, Minute*' {'EVERY MINUTE'}
+	  'When an event occurs' {'EVENT'} 
+	  'Undefined' {'UNDEF'}
+	  default {$_} }}},	  
+  @{N='Mode';E={ switch($_.'Logon Mode') { 'Interactive/Background' {'USER/BG'} 'Interactive only' {'USER'} default {$_} }}},
+  @{N='Comment'; E={$_.Comment.SubString(0,100)+$(if($_.Comment.Length -gt 100){'..'})}},
+  'Start In','Author', 
+  'Idle Time',
+  @{N='LastRunDay';E={([DateTime]$_.'Last Run Time').ToString('yyyy/MM/dd')}},
+  @{N='Type';E={ switch -wildcard ($_.'Schedule Type') { 
+      'At idle time' {'IDLE'} 
+	  'At logon time' {'LOGON'} 
+	  'At system start up' {'BOOT'}  
+	  'On demand only' {'ONDEMAND'} 
+	  'When an event occurs' {'EVENT'} 
+	  'Undefined' {'UNDEF'}
+	  default {'PERIODIC'} }}},  
+  'Status')
+$filter={$_.TaskName -ne 'TaskName'}
+$type='.*'; $mode='.*'; $status='.*'; $name='.*'; 
+$status='Running|Ready';
+$where_script={$_.Type -match $type -and $_.Mode -match $mode -and $_.Status -match $status -and ( $_.TaskName -match $name -or  $_.Comment -match $name  ) }
+
+$SCHEDULED_ARR |? $filter | Select $OutCols |? $where_script | Sort LastRun | Group Type,Status | Sort Name,Count | ft -auto
+Count Name              Group
+----- ----              -----
+   14 BOOT, Ready       {@{TaskName=\Microsoft\Windows\SpacePort\SpaceAgentTask; LastRun=11/30/1999; NextRun=; Task To Run=%windir%\system32\SpaceAgent.exe ; Run As User=SYSTEM; Start In=N/A; Author=Microsoft Corporation; PowerMgmt=; Idle Time=Disabled; Comment=; ScheduleType=BOOT; Mode=USER/BG; Type=BOOT; Status=Ready}, @{TaskName=\Microsoft\Windows\SpacePort\SpaceManagerTask; LastRun=11/30/1999; NextRun=; Task To Run=%windir%\system32\spaceman.exe /Wo…
+   18 EVENT, Ready      {@{TaskName=\Microsoft\Windows\Windows Filtering Platform\BfeOnServiceStartTypeChange; LastRun=11/30/1999; NextRun=; Task To Run=%windir%\system32\rundll32.exe bfe.dll,BfeOnServiceStartTypeChange; Run As User=SYSTEM; Start In=N/A; Author=Microsoft Corporation; PowerMgmt=; Idle Time=Disabled; Comment=This task adjusts the start type for firewall-triggered services when the start type of the Base Fil..; ScheduleType=EVENT; Mode=USE…
+    1 IDLE, Ready       {@{TaskName=\Microsoft\XblGameSave\XblGameSaveTask; LastRun=11/30/1999; NextRun=; Task To Run=%windir%\System32\XblGameSaveTask.exe standby; Run As User=SYSTEM; Start In=N/A; Author=Microsoft; PowerMgmt=No Start On Batteries; Idle Time=Only Start If Idle for  minutes, If Not Idle Retry For  minutes Stop the task if Idle State end; Comment=; ScheduleType=IDLE; Mode=USER/BG; Type=IDLE; Status=Ready}}
+   18 LOGON, Ready      {@{TaskName=\Microsoft\Windows\Active Directory Rights Management Services Client\AD RMS Rights Policy Template Management (Manual); LastRun=11/30/1999; NextRun=; Task To Run=COM handler; Run As User=Everyone; Start In=N/A; Author=Microsoft Corporation; PowerMgmt=Stop On Battery Mode, No Start On Batteries; Idle Time=Disabled; Comment=Updates the AD RMS rights policy templates for the user. This job provides a credential prompt i…
+    2 LOGON, Running    {@{TaskName=\Microsoft\Windows\Wininet\CacheTask; LastRun=5/26/2022 ; NextRun=; Task To Run=COM handler; Run As User=Users; Start In=N/A; Author=Microsoft; PowerMgmt=; Idle Time=Disabled; Comment=; ScheduleType=LOGON; Mode=USER/BG; Type=LOGON; Status=Running}, @{TaskName=\Microsoft\Windows\Multimedia\SystemSoundsService; LastRun=5/26/2022 ; NextRun=; Task To Run=COM handler; Run As User=Users; Start In=N/A; Author=N/A; PowerMgmt=…
+   52 ONDEMAND, Ready   {@{TaskName=\Microsoft\Windows\UPnP\UPnPHostConfig; LastRun=11/30/1999; NextRun=; Task To Run=sc.exe config upnphost start= auto; Run As User=SYSTEM; Start In=N/A; Author=Microsoft; PowerMgmt=; Idle Time=Disabled; Comment=; ScheduleType=ONDEMAND; Mode=USER/BG; Type=ONDEMAND; Status=Ready}, @{TaskName=\Microsoft\Windows\Data Integrity Scan\Data Integrity Scan; LastRun=11/30/1999; NextRun=; Task To Run=COM handler; Run As User=SYST…
+   25 PERIODIC, Ready   {@{TaskName=\Microsoft\Windows\DeviceDirectoryClient\RegisterDeviceWnsFallback; LastRun=11/30/1999; NextRun=6/1/2022 9; Task To Run=COM handler; Run As User=SYSTEM; Start In=N/A; Author=N/A; PowerMgmt=; Idle Time=Disabled; Comment=; ScheduleType=ONCE; Mode=USER/BG; Type=PERIODIC; Status=Ready}, @{TaskName=\Microsoft\Windows\SoftwareProtectionPlatform\SvcRestartTask; LastRun=11/30/1999; NextRun=5/3/2122 1; Task To Run=COM handler;…
+    1 PERIODIC, Running {@{TaskName=\Microsoft\Windows\DeviceDirectoryClient\RegisterDevicePeriodic24; LastRun=5/26/2022 ; NextRun=5/28/2022 ; Task To Run=COM handler; Run As User=SYSTEM; Start In=N/A; Author=N/A; PowerMgmt=; Idle Time=Only Start If Idle for 1 minutes, If Not Idle Retry For 1920 minutes; Comment=; ScheduleType=EVERY HOUR; Mode=USER/BG; Type=PERIODIC; Status=Running}}
+  113 UNDEF, Ready      {@{TaskName=\Microsoft\Windows\USB\Usb-Notifications; LastRun=11/30/1999; NextRun=; Task To Run=COM handler; Run As User=INTERACTIVE; Start In=N/A; Author=Microsoft Corporation; PowerMgmt=; Idle Time=Disabled; Comment=; ScheduleType=UNDEF; Mode=USER/BG; Type=UNDEF; Status=Ready}, @{TaskName=\Microsoft\Windows\UpdateOrchestrator\UUS Failover Task; LastRun=11/30/1999; NextRun=; Task To Run=%systemroot%\system32\usoclient.exe Handle…
+
+$SCHEDULED_ARR |? $filter | Select $OutCols |? $where_script | Group LastRunDay | Sort -desc Values | ft -a *
+
+$SCHEDULED_ARR |? $filter | Select $OutCols |? $where_script | Sort LastRun | Group LastRunDay,Type | Sort -desc Values | Select * -Expand Group  -ea 0 | 
+ ft -auto -group @{n='Group';e={ 'Count:{0} Type:{1}' -f $_.Count,$_.Name }} TaskName, LastRun, NextRun, TaskToRun, RunAsUser, Mode, Comment
+
+
+$PSStyle.OutputRendering="PlainText"
+PS C:\Users\alexe> $SCHEDULED_ARR |? $filter | Select $OutCols | Sort LastRun > C:\home\data\Registry\all_tasks.txt
+$PSStyle.OutputRendering="ansi"
+
+
+$SCHEDULED_ARR |? $where_script | Select @($OutCols+$GroupCols) | Sort $GroupCols | Group $GroupCols | select -Property Count,Name -Expand Group -first 1 -erroraction 0 | Select -exclude $ExcludeCols+$GroupCols | ft -auto -group @{n='Group';e={ 'Count:{0} Schedule Type:{1}' -f $_.Count,$_.Name }} *
+echo "type:$type mode:$mode status:$status state:$state name:$name"
+
+$DRIVER_ARR |? $where_script | Sort $GroupCols| Group $GroupCols | select -Property Count,Name -Expand Group -erroraction 0 | ft -group @{n='Group';e={ 'Count:{0} StartMode:{1}' -f $_.Count,$_.Name.Replace(', ',' State:') }} -a; echo "mode:$mode state:$state name:$name"
+
+
+#######################################
+#  driverquery /v /fo CSV
+$DRIVER_ARR=driverquery /v /fo CSV |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } | ConvertFrom-Csv
+$DRIVER_ARR.Count # >>> 441
+
+$DRIVER_ARR | Group 'Start Mode',State
+Count Name              Group
+----- ----              -----
+   16 Auto, Running     {@{Module Name=bindflt; Display Name=Windows Bind Filter Driver; Description=Windows Bind Filter Driver; Driver Type=File System ; Start Mode=Auto; State=Running; Status=OK; Accept Stop=TRUE; Accept Pause=FALSE; Paged Pool(bytes)=94,208; Code(bytes)=24,576; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\drivers\bindflt.sys; Init(bytes)=4,096}, @{Module Name=CldFlt; Display Name=Windows Cloud Files Filter Driver; Description=W…
+   48 Boot, Running     {@{Module Name=ACPI; Display Name=Microsoft ACPI Driver; Description=Microsoft ACPI Driver; Driver Type=Kernel ; Start Mode=Boot; State=Running; Status=OK; Accept Stop=TRUE; Accept Pause=FALSE; Paged Pool(bytes)=180,224; Code(bytes)=442,368; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\drivers\ACPI.sys; Init(bytes)=24,576}, @{Module Name=acpiex; Display Name=Microsoft ACPIEx Driver; Description=Microsoft ACPIEx Driver; Driv…
+    2 Boot, Stopped     {@{Module Name=hwpolicy; Display Name=Hardware Policy Driver; Description=Hardware Policy Driver; Driver Type=Kernel ; Start Mode=Boot; State=Stopped; Status=OK; Accept Stop=FALSE; Accept Pause=FALSE; Paged Pool(bytes)=4,096; Code(bytes)=4,096; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\drivers\hwpolicy.sys; Init(bytes)=4,096}, @{Module Name=klelam; Display Name=klelam; Description=klelam; Driver Type=Kernel ; Start Mode=…
+    6 Disabled, Stopped {@{Module Name=cdfs; Display Name=CD/DVD File System Reader; Description=CD/DVD File System Reader; Driver Type=File System ; Start Mode=Disabled; State=Stopped; Status=OK; Accept Stop=FALSE; Accept Pause=FALSE; Paged Pool(bytes)=69,632; Code(bytes)=12,288; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\DRIVERS\cdfs.sys; Init(bytes)=4,096}, @{Module Name=cnghwassist; Display Name=CNG Hardware Assist algorithm provider; Descri…
+   88 Manual, Running   {@{Module Name=acpitime; Display Name=ACPI Wake Alarm Driver; Description=ACPI Wake Alarm Driver; Driver Type=Kernel ; Start Mode=Manual; State=Running; Status=OK; Accept Stop=TRUE; Accept Pause=FALSE; Paged Pool(bytes)=8,192; Code(bytes)=4,096; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\drivers\acpitime.sys; Init(bytes)=4,096}, @{Module Name=bowser; Display Name=Browser; Description=Browser; Driver Type=File System ; Sta…
+  235 Manual, Stopped   {@{Module Name=1394ohci; Display Name=1394 OHCI Compliant Host Controller; Description=1394 OHCI Compliant Host Controller; Driver Type=Kernel ; Start Mode=Manual; State=Stopped; Status=OK; Accept Stop=FALSE; Accept Pause=FALSE; Paged Pool(bytes)=4,096; Code(bytes)=229,376; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\drivers\1394ohci.sys; Init(bytes)=4,096}, @{Module Name=3ware; Display Name=3ware; Description=3ware; Drive…
+   45 System, Running   {@{Module Name=AFD; Display Name=Ancillary Function Driver for Winsock; Description=Ancillary Function Driver for Winsock; Driver Type=Kernel ; Start Mode=System; State=Running; Status=OK; Accept Stop=TRUE; Accept Pause=FALSE; Paged Pool(bytes)=143,360; Code(bytes)=311,296; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\drivers\afd.sys; Init(bytes)=8,192}, @{Module Name=afunix; Display Name=afunix; Description=afunix; Driver …
+    1 System, Stopped   {@{Module Name=dam; Display Name=Desktop Activity Moderator Driver; Description=Desktop Activity Moderator Driver; Driver Type=Kernel ; Start Mode=System; State=Stopped; Status=OK; Accept Stop=FALSE; Accept Pause=FALSE; Paged Pool(bytes)=49,152; Code(bytes)=8,192; BSS(bytes)=0; Link Date=; Path=C:\Windows\system32\drivers\dam.sys; Init(bytes)=4,096}}
+
+$where_script={$_.'Start Mode' -match $mode -and $_.State -match $state -and ( $_.'Module Name' -match $name -or $_.Description -match $name ) }
+$mode='.*'; $state='.*'; $name='.*'; # $mode='Boot|Auto'; $state='Running'; 
+$DRIVER_ARR |? $where_script | Group 'Start Mode',State | select -Property Count,Name -Expand Group -erroraction 0 | ft -group @{n='Group';e={ 'Count:{0} StartMode:{1}' -f $_.Count,$_.Name.Replace(', ',' State:') }} -a; echo "mode:$mode state:$state name:$name"
+
+
+
+####################################
+# SysInternal autorunsc64 -a * -c -h -s -nobanner '*'
+$autorunsc='C:\home\apps\SysinternalsSuite\autorunsc64.exe'
+$AUTORUN_ARR=& $autorunsc /accepteula -a * -c -h -s -nobanner '*' |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } | ConvertFrom-Csv
+$AUTORUN_ARR.Count # >>> 1541
+$exclude='disabled|^$'; $match='P9'; $AUTORUN_ARR |? {$_.Enabled -notmatch $exclude -and $_.'Image Path' -match $match } | Select -First 2000 'Entry Location', Entry, Enabled, Category, 'Image Path'| ft -group 'Image Path' -auto
+
+
+
+########################################
+# List programs which start automatically:
 PS C:\Users\alexe> Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\run
 
 SecurityHealth              : C:\Windows\system32\SecurityHealthSystray.exe            # deleted 
@@ -206,6 +314,9 @@ PSChildName                 : run
 PSDrive                     : HKLM
 PSProvider                  : Microsoft.PowerShell.Core\Registry
 
+################################################
+# Same as Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\run
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\run /s
 
 #############################################################
 # Get running scheduled tasks on a Windows system.
@@ -218,7 +329,8 @@ TaskPath                                       TaskName                         
 \Microsoft\Windows\Multimedia\                 SystemSoundsService               Running
 \Microsoft\Windows\Wininet\                    CacheTask                         Running
  
- 
+
+
 
 ########################################
 ########################################
@@ -1397,6 +1509,29 @@ Z                1769.24         60.58 FileSystem    \\WDMyCloudEX4\v4-data
 ##########################
 
 
+############################################
+## export 
+reg export HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\run C:\home\data\Registry\CurrentVersionRun.reg^
+ls C:\home\data\Registry\CurrentVersionRun.reg
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---           5/26/2022 10:52 PM            450 CurrentVersionRun.reg
+
+reg export HKLM\System\CurrentControlSet\Services C:\home\data\Registry\Services.reg
+ls C:\home\data\Registry\Services.reg
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---           5/26/2022 10:54 PM        8669082 Services.reg
+
+reg export HKLM\SYSTEM\CurrentControlSet\Control\NetworkProvider  C:\home\data\Registry\NetworkProvider.reg
+ls C:\home\data\Registry\NetworkProvider.reg
+    Directory: C:\home\data\Registry
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---           5/27/2022  8:44 AM           1176 NetworkProvider.reg
+
+
+
 #################################################################
 # Registry Value Entries
 #
@@ -1965,6 +2100,93 @@ something\.\ in\ here\ \(needs\)\ escaping
 ###################################
 # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_regular_expressions?view=powershell-7.2
 
+
+
+#################################
+# regular expression callback
+# https://stackoverflow.com/questions/8163061/passing-a-function-to-powershells-replace-function/8163281#8163281
+
+# Perhaps you are looking for Regex.Replace Method (String, MatchEvaluator). In PowerShell a script block can be used as MatchEvaluator. Inside this script block $args[0] is the current match.
+
+$global_counter = 0
+$callback = { $global_counter += 1; "string-$($args[0])-" + $global_counter }
+
+$re = [regex]"match"
+$re.Replace('zzz match match xxx', $callback)
+
+Output:
+zzz string-match-1 string-match-2 xxx
+
+
+$re = [regex]"match"
+$re.Replace('', $callback)
+
+#####################################################
+# replace special characters with hex codes
+
+$Global:Backtick = @{}
+foreach ($Char in '0abefnrtv`'.ToCharArray()) {
+    $Global:Backtick[$ExecutionContext.InvokeCommand.ExpandString("``$Char")] = "``$Char"
+}
+$Global:SpecialCharacters = '[' + (-Join $Global:Backtick.get_Keys()) + ']'
+
+function Escape($Text) {
+    [regex]::Replace($Text, $Global:SpecialCharacters, { param($Match) $Backtick[$Match.Value] })
+}
+
+
+
+#####################################################
+# replace non-ASCII characters with hex codes
+############################################
+# ascii-codes replaces non-ASCII characters with hex codes
+# $orig="`e[33m yellow `e[m"; $orig | ascii-codes
+# 0x1B[33m yellow 0x1B[m
+function ascii-codes() {
+    [CmdletBinding()][OutputType([string])] param( [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')] [string[]]$strings )
+	Process {
+		$strings |? {$_} |% { 
+			$orig=$_.TocharArray()
+			$new= ( $orig |% { $code=[int] $_; if ( $code -lt 0x20 -or $code -gt 0x7F  ) {'0x{0,2:X2}' -f [int]$_ } else {$_}} )
+			$new -join ('')
+		}
+	}
+}
+
+#################################
+# https://stackoverflow.com/questions/7034659/net-replace-non-printable-ascii-with-string-representation-of-hex-code
+# does not work ! :(
+Regex.Replace(input, @"\p{Cc}",  a=>string.Format("[{0:X2}]", (byte)a.Value[0]) );
+[Regex]::Replace("test", "\\p{Cc}",  a=>string.Format("[{0:X2}]", (byte)a.Value[0]) );
+ works: "`e[33m yellow `e[m" -replace('\p{Cc}','')
+
+#######################
+# https://stackoverflow.com/questions/22269879/translating-c-sharp-regex-into-powershell
+$database = "NewDb"
+$query = (Get-Content '<file path>') -join "`r`n"
+$query = [regex]::Replace($query, '^\s*use\s+(.*?)$', ("`nUSE [" + $database + "]`n"), [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline)
+$query
+
+
+##########################
+# Convert an array of "ANSI" code points (1 byte each) to the UTF-16 string they represent. 
+# https://stackoverflow.com/questions/52174455/using-powershell-to-replace-extended-ascii-character-in-a-text-file
+# Note: In Windows PowerShell, [Text.Encoding]::Default contains
+#       the "ANSI" encoding set by the system locale.
+$str = [Text.Encoding]::Default.GetString([byte[]] 0x93) # -> '“'
+
+# Get the UTF-16 code points of the characters making up the string.
+$codePoints = [int[]] [char[]] $str
+
+# Format the first and only code point as a hex. number.
+'0x{0:x}' -f $codePoints[0]  # -> '0x201c'
+
+########################################
+# Powershell find non-ASCII characters in text file
+# https://stackoverflow.com/questions/61792387/powershell-find-non-ascii-characters-in-text-file
+'Mathias R. Jessen' -cmatch '[^\x20-\x7F]'
+Get-Content in.txt |  Where-Object { $_ -match '\P{IsBasicLatin}' } | Set-Content -Encoding Utf8 out.txt
+	
 ###################################
 # Character ranges
 # [ -~] (all printable characters).
@@ -1996,7 +2218,7 @@ $_ -replace('^(\w*)\W*:\W*([ -~]*)','$1=$2') }) |% {
 # \b                 | Match a word boundary.
 # ^                  | Start at the beginning of the string.
 # \s*                | Match zero or more white-space characters.
-# [\+-]?             | Match zero or one occurrence of either the positive sign or the negative sign.
+# [\+-]?             | Ma tch zero or one occurrence of either the positive sign or the negative sign.
 # \s?                | Match zero or one white-space character.
 # \$?                | Match zero or one occurrence of the dollar sign.
 # \s?                | Match zero or one white-space character.
@@ -2157,11 +2379,14 @@ $string -replace $pattern, "."
 ######                      #######
 ###################################
 ###################################
-# $OldOFS = $OFS
-# $OFS = "`r`n"
-# ...
-# $OFS = $OldOFS
-# -join [System.Environment]::NewLine
+
+
+PS C:\Users\alexe> '{0}' -f $("`e[33m yellow `e[m"  | Format-Hex)
+0000000000000000   1B 5B 33 33 6D 20 79 65 6C 6C 6F 77 20 1B 5B 6D  �[33m yellow �[m
+
+####
+# replace non-ASCII characters with hex codes
+
 #####################
 # Text Processing
 # $SC_LINES =sc.exe query 
@@ -2172,20 +2397,100 @@ $string -replace $pattern, "."
 # $SC_LINES =sc.exe query    |% {$_.Trim()}         # lines are trimmed
 # $SC_LINES =sc.exe query    |% {$_.Trim()}|? $_    # lines are trimmed, empty lines removed
 
-$XX=sc.exe query; $XX.Count; $XX[0..4]
 
-
-function exe-cmd( $cmd, [switch]$quiet, [int]$sample_lines=4) {
-    $Global:CMD_OUT=& ($cmd -split(" "))[0] ($cmd -split(" "))[1]
-    if (!$quiet) {
-        "`e[#p`e[1m`e[34m{0,-15}`e[22m  : `e[33m{1}`e[#q" -f 'COMMAND',$cmd
-        "`e[#p`e[1m`e[34m{0,-15}`e[22m  : `e[33m{1}`e[#q" -f '$Global:CMD_OUT',"first $sample_lines lines"
-        0..$($sample_lines - 1) |% {"`e[#p`e[32m{0,-5} `e[34m<`e[33m{1}`e[34m>`e[#q" -f $($_+1), $Global:CMD_OUT[$_]}
-        "`e[#p`e[1m`e[34m{0,-15}`e[22m : `e[33m{1}`e[#q" -f 'Total lines',$Global:CMD_OUT.Count
-    }
+function out-dura ($tm_val) {
+	if ( !$tm_val -and $global:prev_time ) { $tm_val = $global:prev_time }
+	$global:prev_time=(Get-Date)
+	if ( $tm_val ) {
+		$dura=$($global:prev_time-$tm_val)
+		if($dura.TotalMilliseconds -lt 100) {
+			$fmt="{0,-5:g3} Millisecond"
+		} elseif ($dura.TotalSeconds -lt 2) {
+			$fmt="{0,-5:g4} Milliseconds"
+		} elseif ($dura.TotalSeconds -lt 10) {
+			$fmt="{3,1}.{1,3} Second"
+		} elseif ($dura.TotalMinutes -lt 1) {
+			$fmt="{3,-5} Seconds"
+		} elseif ($dura.TotalHours -lt 1) {
+			$fmt="{4,2:d2}:{3,2:d2} Minutes"
+		} elseif ($dura.TotalHours -lt 24) {
+			$fmt="{5,2:d2}:{4,2:d2}:{3,2:d2} Hours"
+		} else {
+			$fmt="{6}:{5,2:d2}:{4,2:d2}:{3,2:d2} Days"
+		}
+		$fmt -f $dura.TotalMilliseconds, $dura.Milliseconds, $dura.TotalSeconds, $dura.Seconds, $dura.Minutes, $dura.Hours, $dura.Days
+		$global:prev_dura=$dura
+		$global:prev_dura_fmt=$fmt
+	}
+	return
 }
 
-exe-cmd "sc.exe query"
+
+
+function exe-cmd-simple( [string] $cmd_line, [switch]$quiet, [switch] $raw, [int]$sample_lines=4) {
+    if (!$sc) {
+		$sc="`e[#p"; $rc="`e[#q"; $red="`e[1;31m"; $grn="`e[1;32m"; $ylw="`e[1;33m"; $blu="`e[1;34m"; $mgn="`e[1;35m"; $cyn="`e[1;36m";
+		$bold="`e[1m"; $bold_off="`e[22m";
+	}
+	if (!$cmd_line) {
+@" 
+$sc${blu}Usage${gry}:
+	${cyn}exe-cmd${gry} <cmd_line> [-quiet] [-sample_lines=4]
+${blu}Example${gry}:
+	`$autorunsc='C:\home\apps\SysinternalsSuite\autorunsc64.exe'
+	${cyn}$($MyInvocation.MyCommand)${gry} `"`$autorunsc /accepteula -a * -c -h -s -nobanner '*'`"$rc
+    `$CMD_OUT | select -first 12 | ConvertFrom-Csv | ft -auto
+"@
+	   return
+	}
+	[string[]] $cmd_arr=$cmd_line -split(" ")
+	$exe=$cmd_arr[0] 
+	$exe_args=$cmd_arr[1..$($cmd_arr.Count-1)]
+	$fmt_var="{0,-15}"	
+	if (!$quiet) {
+
+		$tm_start=Get-Date
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1} ${grn}{2}$rc" -f "COMMAND $(if($exe_args.Count){ `"and $($exe_args.Count) args`"})", $exe, $($exe_args -join (' '))
+		$exe_watch=[System.Diagnostics.Stopwatch]::New()
+		$exe_watch.Start()
+	}
+	# [array] $Global:CMD_OUT=& $exe $exe_args|% { if ($raw) { $_ } else { $_.Trim() -replace('\p{Cc}+','')} } |? { $_ } # |? { $_ -and $_ -notmatch '\p{Cc}' }
+	if($raw) {
+		[array] $Global:CMD_OUT=& $exe $exe_args
+	} else {
+		[array] $Global:CMD_OUT=& $exe $exe_args |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } 
+	}
+		
+    if (!$quiet) {
+		$exe_watch.Stop()
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Duration', "$(out-dura $tm_start)"
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1,-5:g5}$rc" -f 'Elapsed', "$($exe_watch.Elapsed.TotalSeconds) s"
+		if ($Global:CMD_OUT -is [array]) {
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Sample lines',"$sample_lines"
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $Global:CMD_OUT[$_]}
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$Global:CMD_OUT.Count	
+		} else {
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"is a string of $($Global:CMD_OUT.Length) symbols length"
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Sample lines',"$sample_lines"
+			$tmpArr=@($Global:CMD_OUT -split([environment]::NewLine))
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $($tmpArr[$_] -replace ([environment]::NewLine,'\n')) }
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$tmpArr.Count	
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Data store','$Global:CMD_OUT'
+			
+		}
+    }
+}
+$autorunsc='C:\home\apps\SysinternalsSuite\autorunsc64.exe'
+exe-cmd "$autorunsc /accepteula -a * -c -h -s -nobanner '*'"
+
+AUTORUN_ARR=$CMD_OUT | ConvertFrom-Csv
+$AUTORUN_ARR.Count
+1523
+
+$AUTORUN_ARR |? {$_.Enabled -notmatch 'disabled|^$' } | Select -First 2000 'Entry Location', Entry, Enabled, Category, 'Image Path'| ft -group Category -auto
+
+
+exe-cmd-simple "sc.exe query"
 
 #######################
 # Get the last line of a text file

@@ -1,6 +1,9 @@
-param($command=ps-info)
-#using namespace System.Management.Automation
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$myscript=$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf)
+$e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"; $strk = "$e[9m"; $nrml="$e[29m"
+$red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
 
+#using namespace System.Management.Automation
 # Get-Process WDDriveService,Sysmon,Sysmon,ServiceShell
 
 if (!$Global:Users) { $Global:Users=Get-LocalUser }
@@ -28,6 +31,24 @@ $W32_PROC_FMT=@{
 
 $W32_PROC_TBL=@{ Auto=$true; Property='Name','Priority','ProcessID','WS','StartDT','StartTM','PPID','Threads','Handle','ExecutablePath' }
 # Get-WmiObject -Query "Select * from Win32_Process" | Select @W32_PROC_FMT | Sort | ft @W32_PROC_TBL
+
+$W32_SERVICE_FMT=@{
+    Property=@( 'Name', 'Status', 'State', 'UserName', 
+	@{N='PathName';E={$_.BinaryPathName}}, 
+	@{N='Startup';E={$_.StartupType}},
+	'ProcessId', 
+	@{n="ExitCode";e={if($_.ExitCode -eq $_.ServiceSpecificExitCode ){"$($_.ExitCode)"}else{"$($_.ExitCode)($($_.ServiceSpecificExitCode))"} } },
+	@{n="StartMode";e={$_.StartMode+$(if($_.DelayedAutoStart){"/Delayed"} ) }},
+    @{N='Description';E={($_.Description -replace "(?<=.{100}).+","..")}},
+	@{N='DisplayName';E={($_.DisplayName -replace "(?<=.{60}).+","..") }},
+	@{N='DependentServices';E={$_.DependentServices}},
+	@{N='ServicesDependedOn';E={$_.ServicesDependedOn}},
+	@{N='Can';E={@()+$(If($_.CanPauseAndContinue) { @('Pause:Y')}else{@('Pause:N')})+$(If($_.CanShutdown){ @('ShutDown:Y')}else{@('ShutDown:N')})+$(If($_.CanStop){ @('Stop:Y')}else{@('Stop:N')}) }},
+	'ServiceType'
+	)	
+}
+
+$W32_SERVICE_TBL=@{ Auto=$true; Property='Name','Status','State','StartMode','Description','ProcessId','PathName' }
 
 $ServiceCols=@( @{n="Name";e={$_.Name}}
 @{n="Status";e={$_.Status}}
@@ -74,6 +95,250 @@ ServiceSpecificExitCode,
 CimClass, CimInstanceProperties, CimSystemProperties 
 #>
 
+
+##################################
+
+function Get-MyServices($cmds=@("SC")) {	
+	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on line $cyn{3}$gry at $ylw{4}$gry | $ylw{5}$blu[$ylw{6}$blu]${gry}: $ylw{7}$gry. $rc" -f $MyInvocation.MyCommand.Name, 
+		$myscript,$(&{$MyInvocation.ScriptLineNumber}),$MyInvocation.ScriptLineNumber, $(Get-Date), 
+	   '$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '}) | Out-Host
+
+	foreach ($cmd in $cmds) {
+		switch($cmd) {
+			"SC" { 
+# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
+# $SC_LINES =sc.exe query 
+# $SC_LINES =sc.exe query  | Out-String -stream  # many lines
+# $SC_OUTPUT=sc.exe query  | Out-String # just one line
+# $SC_LINES =sc.exe query  |? {$_.Trim()} # empty lines removed
+# $SC_LINES =sc.exe query  |% {$_.Trim()} # lines are trimmed
+# $SC_LINES =sc.exe query  |% {$_.Trim()}|? $_ # lines are trimmed, empty lines removed
+
+				$tArr=@(); $Idx=0; $TestCnt=100000
+				exe-cmd "sc.exe query"  # output goes into $Global:CMD_OUT
+
+				##################################
+				 # -replace('(\w+)=([0-9]\w*)  (.+)','$1=$2; $1_INFO="$3"') -replace('(\w+)=([0-9]\w*).*','$1=$2') 
+				$Global:SC_SERVICES=$(
+				##################################
+				$Global:CMD_OUT -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
+				Select-Object -first $TestCnt | % {
+					# '[{0}] {1}' -f $IDX, $_
+					if ($_ -like 'SERVICE_NAME=*') {
+						if ($tArr) {  
+							$tArr=$( $EXTRA=@(); $tArr |% { if($_ -match '\w+=.*' ) { $_ } else {$EXTRA+=@($_)} }; 'SERVICE_ATTR="{0}"' -f $EXTRA )
+							# $scriptblock=[scriptblock]::Create("New-Object -TypeName PSCustomObject -Property ([ordered]@{ IDX=$Idx; $($tArr -join('; '))})")
+							& ([scriptblock]::Create("New-Object -TypeName PSCustomObject -Property ([ordered]@{ IDX=$Idx; $($tArr -join('; '))})"))
+							$Idx++
+						}
+						$tArr=@()
+					}
+					$tArr+=@($_)
+				}
+				##################################
+				)
+				'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
+				##################################
+			}
+
+			"SC2" {
+				##################################
+				exe-cmd "sc.exe query" # output goes into $Global:CMD_OUT
+				$Global:SC_SERVICES=$(
+					$prevIdx=0
+					for ( $Idx=0; $Idx -lt $Global:SC_LINES.Count; $Idx++)  {
+						# '[{0}] {1}' -f $IDX, $_
+						if ($Global:SC_LINES[$Idx] -like 'SERVICE_NAME=*') {
+							[pscustomobject] (ConvertFrom-StringData $($Global:SC_LINES[$prevIdx..$($Idx-1)] -replace '^\(','EXTRA_ATTR:(' -join("`n"))  -Delimiter ':')
+							$prevIdx=$Idx
+						}
+					}
+					##################################
+				)
+				'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
+				##################################
+			}
+
+			"CIM" {
+				$Global:WIN32_SERVICE=Get-CimInstance Win32_Process -ea 0
+			}
+			
+
+			default {
+				$Global:SERVICES=get-service
+			}
+		}
+	}
+}
+
+
+
+
+
+##################################
+function pval($vals, [int]$max,[switch]$noclr,[string]$separator="`n"){
+	[string]$Text=""
+	[int]$Cnt=0
+	foreach ($Obj in pobj $vals) {
+		if($Cnt) { $Text+=$separator }
+		$Text+=[string]$(
+			if($Obj.Cut) {
+				if($noclr) { 
+					"{0}"  -f $($Obj.Str -replace "(?<=.{$max}).+","...")
+				} else { 
+					"${sc}${cyn}{0}${rc}"  -f $($Obj.Str -replace "(?<=.{$max}).+","$sc${blu}...$rc" )
+				}
+			} else {
+				$Obj.Str
+			}
+		)
+		$Cnt++
+	}
+	return $Text
+}
+
+function parr($arr, [switch]$noclr, $fmt_body="[{0}] {1}", $fmt_join=", ", $fmt_wrap="@( {0} )", $fmt_cut="...") {
+	[string]$body_str=""
+	# $cstr"$e[${color}m$($_.Name)${e}[0m"
+	if ($arr -ne $null) {
+		if(!$noclr) {
+		    $fmt_body=$fmt_body -replace("(${fmt_body[0]}${fmt_body[4]}])","$sc$ylw`$0$rc") ;# -replace(${fmt_body[3]},"$sc$ylw${fmt_body[3]}$rc")
+			$fmt_join="$sc$blu$fmt_join$rc" 
+			<#
+		    $fmt_wrap=$fmt_wrap -replace(${fmt_wrap[1]},"$sc$blu@$ylw${fmt_wrap[1]}$rc") -replace(${fmt_wrap[7]},"$sc$ylw${fmt_wrap[7]}$rc")
+			$fmt_cut="$sc${blu}$fmt_cut$rc"
+			#>
+		}
+		$idx=0
+		"fmt_body:$fmt_body fmt_join:$fmt_join fmt_wrap:$fmt_wrap fmt_cut:$fmt_cut  "  |  Out-Host
+		$body_str=$( ($arr |% { $fmt_body -f $idx++, $( pval $_ -noclr )  } ) -join($fmt_join) )		
+	    $body_str=$( $fmt_wrap -f $($body_str -replace "(?<=.{$max}).+",$fmt_cut) )+"$nc"
+	}
+	return $fmt_wrap -f $body_str
+}
+
+function pvar($val,[string] $var,[switch] $noclr,[switch] $novar,[string]$scope=1) {
+	# pargs
+    [string] $str=""
+	[int]    $size=0
+	[string] $type=""
+	if($var) {
+		switch -wildcard ($var) { '*:*' { $Scope=$var -replace ':.*',''; $Var=$Var -replace '.*:',''; } } 
+		$val=Get-Variable -Name $Var -Scope $Scope -ValueOnly -ErrorAction "SilentlyContinue"
+		if (!$?) { 
+			$str="N/A" 
+		}
+		
+		# 'scope:{0} var:{1} val:{2}' -f $scope,$var,$val
+	}
+	if ($val -ne $null ) { 
+		if($val -is [hashtable]) { 
+			$size=@($val.Keys).Length
+			$str=$(pval -vals:$val -noclr:$noclr)
+			$type='Hash'
+		} elseif ($val -is [array]) {
+			$size=$val.Length
+			$type='Array'
+			$str=$(parr -arr:$val -noclr:$noclr)
+		} elseif ($val -is [string]) {
+			$type='String'
+			$str=$val
+			$size=$str.Length
+		} elseif ($val -is [int]) {
+			$type='Int'
+			$str=$val
+			$size=$str.Length
+			$str=$(pval -vals:$val -noclr:$noclr)
+		} elseif ($val -is [scriptblock]) {
+			$type='ScripBlock'
+			$str=$val.ToString()
+			$size=$val.Length
+		} elseif ($val -is [object]) {
+			$type='Object'
+			$size=$val.Length
+			$str=$(pval -vals:$val -noclr:$noclr)
+        } else {
+			$type='Other'
+			$size=$val.Length
+			$str=$(pval -vals:$val -noclr:$noclr)
+		}
+	} 
+	if ($novar) {
+		if ($noclr) {
+			$fmt="'[{0}({1}):{2}]'"
+		} else {
+			$fmt="$sc$ylw[$cyn{0}$ylw($red{1}$ylw)]:{2}$rc"
+		}
+		$fmt -f $type, $size, $str
+	} else {
+		# $type=$(($val.GetType()).FullName) -replace '.*\.([^.]*)$','$1'
+		if(!$var) { 
+			$stack=Get-PSCallStack
+			$pos=$stack[1].Position
+			$fnc=$stack[0].FunctionName
+			$var=$pos -replace("$fnc ",'') 
+			# 'pos:{0} fnc:{1} var:{2} type:{3}' -f $pos,$fnc,$var,$type
+		}
+		if ($noclr) {
+			$fmt="{0}[{1}({2})]:{3}"
+		} else {
+			$fmt="$sc$grn{0}$ylw[$cyn{1}$ylw($red{2}$ylw)]:{3}$rc"
+		}
+		if ($scope -notmatch '[0-9]') { $var="${scope}:${var}"}
+		$fmt -f $var, $type, $size, $str
+	}
+}
+
+function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
+	$stack=Get-PSCallStack
+	# $stack | ft *
+	# (Get-PSCallStack | gm Arguments).Definition 
+	[string] $FuncLoc=$stack[1].Location -replace ' line ',''
+	[string] $FuncPos=$stack[1].Position
+	[string] $FuncName=$stack[1].Command+'('+ $($stack[1].Arguments -replace '{(.*)}','$1' -replace '(?<=.{50}).+','..' ) + ')' ; # 
+		
+	[string] $CallerLoc=$stack[2].Location -replace ' line ',''
+	[string] $CallerPos=$stack[2].Position
+	[string] $CallerName=$stack[2].Command+'('+ $($stack[2].Arguments -replace '{(.*)}','$1' -replace '(?<=.{50}).+','..' ) + ')' ; # 
+	[string[]] $rows=@()
+	
+	if($Text) { 
+		if (!$noclr) {
+			$Text=$Text -replace ('Error:',"${sc}${errClr}Error${rc}:") -replace ('Warning:',"${sc}${wrnClr}Warning${rc}:")
+		}
+		
+		$rows+=@($Text)
+	}  
+	
+	foreach ($Var in $Vars) {
+		$rows+=@(pvar -Var:$Var -scope:2)
+	}
+	foreach ($Val in $Vals) {
+		$rows+=@(pvar $Val -novar -scope:2)
+	}
+ 
+	if ($rows.Length) {
+		if ($noclr) {
+			$fmt="[{0}] {2}"
+		} else {
+			$fmt="$sc$blu[$ylw{0}$blu] $gry{2}$rc"
+		}
+		$fmt -f $FuncLoc, $FuncName, $( $rows -join(' '))
+	} else {
+		# '[{0} {1}] Called in {2} at {3} as {4}' -f $FuncLoc, $FuncName, $CallerName, $CallerLoc, $CallerPos
+		if ($noclr) {
+			$fmt="[{0}] {1} called at {5} on {3} as {4}"
+		} else {
+			$fmt="$sc$blu[$ylw{0}$blu] $cyn{1}$gry called at $ylw{5}$gry on $ylw{3}$gry as $cyn{4}$rc"
+		}
+		$fmt -f $FuncLoc, $FuncName, $CallerName, $CallerLoc, $CallerPos, $(Get-Date)
+	}
+	if ($stack.Length -gt 10 ) { throw "Stack is too deep : $($stack.Length)." }
+	return
+}
+
+# Remove-Alias pargs -ErrorAction "SilentlyContinue"
+New-Alias -Name pargs -Value 'DbgInfo-Func' -ErrorAction "SilentlyContinue"
 
 function get-ResultObject ($R) {
 	if ($R) {
@@ -502,45 +767,187 @@ function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
 	return
 }
 
-function fnc-start() {
+
+############################################
+# ascii-codes replaces non-ASCII characters with hex codes
+# $orig="`e[33m yellow `e[m"; $orig | ascii-codes
+# 0x1B[33m yellow 0x1B[m
+
+function ascii-codes() {
+    [CmdletBinding()][OutputType([string])] param( [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')] [string[]]$strings )
+	Process {
+		$strings |? {$_} |% { 
+		
+			$orig=$_.TocharArray()
+			$new= ( $orig |% { $code=[int] $_; if ( $code -lt 0x20 -or $code -gt 0x7F  ) {'0x{0,2:X2}' -f [int]$_ } else {$_}} )
+			$new -join ('')
+		}
+	}
+}
+
+function out-dura ($tm_val) {
+	if ( !$tm_val -and $global:prev_time ) { $tm_val = $global:prev_time }
+	$global:prev_time=(Get-Date)
+	if ( $tm_val ) {
+		$dura=$($global:prev_time-$tm_val)
+		if($dura.TotalMilliseconds -lt 100) {
+			$fmt="{0,-5:g3} Millisecond"
+		} elseif ($dura.TotalSeconds -lt 2) {
+			$fmt="{0,-5:g4} Milliseconds"
+		} elseif ($dura.TotalSeconds -lt 10) {
+			$fmt="{3,1}.{1,3} Second"
+		} elseif ($dura.TotalMinutes -lt 1) {
+			$fmt="{3,-5} Seconds"
+		} elseif ($dura.TotalHours -lt 1) {
+			$fmt="{4,2:d2}:{3,2:d2} Minutes"
+		} elseif ($dura.TotalHours -lt 24) {
+			$fmt="{5,2:d2}:{4,2:d2}:{3,2:d2} Hours"
+		} else {
+			$fmt="{6}:{5,2:d2}:{4,2:d2}:{3,2:d2} Days"
+		}
+		$fmt -f $dura.TotalMilliseconds, $dura.Milliseconds, $dura.TotalSeconds, $dura.Seconds, $dura.Minutes, $dura.Hours, $dura.Days
+		$global:prev_dura=$dura
+		$global:prev_dura_fmt=$fmt
+	}
+	return
+}
+
+function out-duration( [ref] $data, $mode ) {
+    if (!$sc) {
+		$sc="`e[#p"; $rc="`e[#q"; $red="`e[1;31m"; $grn="`e[1;32m"; $ylw="`e[1;33m"; $blu="`e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; 
+		$bold="`e[1m"; $bold_off="`e[22m";
+	}
+
+	if ($data.value -is [DateTime]) { $tm=$data.value }
 	
-	if (!$global:myscript) { $global:myscript=Split-Path $MyInvocation.ScriptName -leaf }
-	if (!$global:mywatch) { $global:mywatch=[System.Diagnostics.Stopwatch]::New() }
-    
+	if ( $tm ) {
+		$dura=((Get-Date)-$tm)
+		if($dura.TotalMilliseconds -lt 100) {
+			$fmt="{0,5:g3} Millisecond"
+		} elseif ($dura.TotalSeconds -lt 2) {
+			$fmt="{0,5:g4} Milliseconds"
+		} elseif ($dura.TotalSeconds -lt 10) {
+			$fmt="{3,1}.{1,3} Second"
+		} elseif ($dura.TotalMinutes -lt 1) {
+			$fmt="{3,5} Seconds"
+		} elseif ($dura.TotalHours -lt 1) {
+			$fmt="{4,2}:{3,2:d2} Minutes"
+		} elseif ($dura.TotalHours -lt 24) {
+			$fmt="{5,2}:{4,2:d2}:{3,2:d2} Hours"
+		} else {
+			$fmt="{6,2}:{5,2:d2}:{4,2:d2}:{3,2:d2} Days"
+		}
 
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks."+
-	"Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry "+
-	"| $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $global:myscript, $MyInvocation.ScriptLineNumber,
-		$global:mywatch.Elapsed.milliseconds, $global:mywatch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
-		'$PsBoundParameters', $(@($PsBoundParameters.Keys).Count), 
-		$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
+		$tmp=$fmt -replace(':','')
+		
+		switch($fmt.Length-$tmp.Length) {
+			1 { $fmt_clr="$sc${blu}$fmt$rc" }
+			2 { $fmt_clr="$sc${ylw}$fmt$rc" }
+			3 { $fmt_clr="$sc${mgn}$fmt$rc" }
+			4 { $fmt_clr="$sc${red}$fmt$rc" }
+			default { $fmt_clr="$sc${grn}$fmt$rc" }
+		}
+
+		$fmt_parts=$fmt_clr -split(' ')
+
+		Write-Output "`$mode:$mode `$fmt_parts:$($fmt_parts -join('; '))"
+		Write-Output "$($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days)"
+		Write-Output "`$fmt:$fmt"
+		Write-Output "    fmt: $($fmt     -f $($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days))"
+		Write-Output "`$fmt_clr=$fmt_clr"
+		Write-Output "fmt_clr: $($fmt_clr -f $($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days))"
+
+
+		$fmt_inv="$sc${bold}${grn}{0,-15}${bold_off}: {1}$rc" -f $fmt_parts[1],$fmt_parts[0] 
+
+		Write-Output "`$fmt_inv=$fmt_inv"
+		Write-Output "fmt_inv: $($fmt_inv -f $($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days))"
+
+		switch ($mode) {
+			"inverse" { $out_fmt=$fmt_inv}
+			"colors"  { $out_fmt=$fmt_clr }
+			default   { $out_fmt=$fmt }
+		}
+				
+		Write-Output "`$out_fmt=$out_fmt"
+		Write-Output $($out_fmt -f $dura.TotalMilliseconds, $dura.Milliseconds, $dura.TotalSeconds, $dura.Seconds, $dura.Minutes, $dura.Hours, $dura.Days)
+	}
+	$data.value =Get-Date
+	return
 }
 
-function fnc-stop() {
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
-	$script:watch.Elapsed.milliseconds, $script:watch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
-	'$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
-}
 
-function fnc-test($arg1,$arg2='2',$arg3) {
-	fnc-start
-	$test_var="test"
-	'args' -f $( $args | ConvertTo-Json )
-	
-	'$PsBoundParameters: {0}' -f $( $PsBoundParameters | ConvertTo-Json )
-	fnc-stop
-}
-
-
-function exe-cmd( [string] $cmd_line, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, $mode='array') {
-	$newline=[environment]::NewLine
-	$nl='\n'
-	$exe_watch=[System.Diagnostics.Stopwatch]::New()
-	[string[]] $cmd_arr=$cmd -split(" ")
+function exe-cmd-simple( [string] $cmd_line, [switch]$quiet, [switch] $raw, [int]$sample_lines=4) {
+    if (!$sc) {
+		$sc="`e[#p"; $rc="`e[#q"; $red="`e[1;31m"; $grn="`e[1;32m"; $ylw="`e[1;33m"; $blu="`e[1;34m"; $mgn="`e[1;35m"; $cyn="`e[1;36m";
+		$bold="`e[1m"; $bold_off="`e[22m";
+	}
+	if (!$cmd_line) {
+@" 
+$sc${blu}Usage${gry}:
+	${cyn}exe-cmd${gry} <cmd_line> [-quiet] [-sample_lines=4]
+${blu}Example${gry}:
+	`$autorunsc='C:\home\apps\SysinternalsSuite\autorunsc64.exe'
+	${cyn}$($MyInvocation.MyCommand)${gry} `"`$autorunsc /accepteula -a * -c -h -s -nobanner '*'`"$rc
+"@
+	   return
+	}
+	[string[]] $cmd_arr=$cmd_line -split(" ")
 	$exe=$cmd_arr[0] 
 	$exe_args=$cmd_arr[1..$($cmd_arr.Count-1)]
-	if (!$exe_watch.IsRunning) { $exe_watch.Reset()}
-	$exe_watch.Start()
+	$fmt_var="{0,-15}"	
+	if (!$quiet) {
+
+		$tm_start=Get-Date
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1} ${grn}{2}$rc" -f "COMMAND $(if($exe_args.Count){ `"and $($exe_args.Count) args`"})", $exe, $($exe_args -join (' '))
+		$exe_watch=[System.Diagnostics.Stopwatch]::New()
+		$exe_watch.Start()
+	}
+	# [array] $Global:CMD_OUT=& $exe $exe_args|% { if ($raw) { $_ } else { $_.Trim() -replace('\p{Cc}+','')} } |? { $_ } # |? { $_ -and $_ -notmatch '\p{Cc}' }
+	if($raw) {
+		[array] $Global:CMD_OUT=& $exe $exe_args
+	} else {
+		[array] $Global:CMD_OUT=& $exe $exe_args |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } 
+	}
+		
+    if (!$quiet) {
+		$exe_watch.Stop()
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Duration', "$(out-dura $tm_start)"
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1,-5:g5}$rc" -f 'Elapsed', "$($exe_watch.Elapsed.TotalSeconds) s"
+		if ($Global:CMD_OUT -is [array]) {
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Sample lines',"$sample_lines"
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $Global:CMD_OUT[$_]}
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$Global:CMD_OUT.Count	
+		} else {
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"is a string of $($Global:CMD_OUT.Length) symbols length"
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Sample lines',"$sample_lines"
+			$tmpArr=@($Global:CMD_OUT -split([environment]::NewLine))
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $($tmpArr[$_] -replace ([environment]::NewLine,'\n')) }
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$tmpArr.Count	
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Data store','$Global:CMD_OUT'
+			
+		}
+    }
+}
+
+# $AUTORUN_OUT | select -first 1 | %{ [regex]::replace($_,'[^\x20-\x7F]','.',[System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline).Trim() } 
+
+function exe-cmd( [string] $cmd_line, [switch]$quiet, [int]$sample_lines=4, [int] $maxcount, [switch] $raw , $mode='array') {
+
+	$e=[char]27; $sc="$e[#p"; $rc="$e[#q"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="`e[1;35m"; $cyn="`e[1;36m";
+    $bold="$e[1m";$bold_off="$e[22m"; 
+	$fmt_var="{0,-20}"	
+	[string[]] $cmd_arr=$cmd_line -split(" ")
+	$exe=$cmd_arr[0] 
+	$exe_args=$cmd_arr[1..$($cmd_arr.Count-1)]
+	if (!$quiet) {
+		$tm_start=Get-Date
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1} ${grn}{2}$rc" -f "COMMAND $(if($exe_args.Count){ `"and $($exe_args.Count) args`"})", $exe, $($exe_args -join (' '))
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'mode', $mode
+		$exe_watch=[System.Diagnostics.Stopwatch]::New()
+		$exe_watch.Start()
+	}
+	
 	switch($mode) {
 		'string2' {
 			# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
@@ -558,104 +965,33 @@ function exe-cmd( [string] $cmd_line, [switch]$quiet, [int]$sample_lines=4, [int
 			[array] $Global:CMD_OUT=& $exe $exe_args
 		}
 		default {
-			[array] $Global:CMD_OUT=& $exe $exe_args|% { $_.Trim() } |? { $_ }
+			if($raw) {
+				[array] $Global:CMD_OUT=& $exe $exe_args
+			} else {
+				[array] $Global:CMD_OUT=& $exe $exe_args |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } 
+			}							
 			if ($mode -is [int]) { $maxcount=$mode }
 		}
 	}
-	$exe_watch.Stop()
-	if ($maxcount) {
-		$Global:CMD_OUT=$Global:CMD_OUT[0..($maxcount-1)]
-	}
     if (!$quiet) {
-        "$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'COMMAND', $cmd
-		"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'mode', $mode
-		"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'Elapsed', "$($exe_watch.Elapsed.ticks) ticks"
-		"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'Elapsed', "$($exe_watch.Elapsed.milliseconds) ms"
+		
+		"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1,-5:g5}$rc" -f 'Elapsed', "$($exe_watch.Elapsed.TotalSeconds) s"
 		if ($Global:CMD_OUT -is [array]) {
-			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"first $sample_lines lines"
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Sample lines',"$sample_lines"
 			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $Global:CMD_OUT[$_]}
 			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$Global:CMD_OUT.Count	
 		} else {
-			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"is a string of $($Global:CMD_OUT.Length) symbols"
-			"$sc${bold}${blu}${fmt_var}${bold_off}  : ${ylw}{1}$rc" -f 'Splitting',"first $sample_lines lines"
-			$tmpArr=@($Global:CMD_OUT -split("$newline"))
-			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $($tmpArr[$_] -replace ("$newline","$nl")) }
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f '$Global:CMD_OUT',"is a string of $($Global:CMD_OUT.Length) symbols length"
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Sample lines',"$sample_lines"
+			$tmpArr=@($Global:CMD_OUT -split([environment]::NewLine))
+			0..$($sample_lines - 1) |% {"$sc${grn}{0,-5} ${blu}<${ylw}{1}${blu}>$rc" -f $($_+1), $($tmpArr[$_] -replace ([environment]::NewLine,'\n')) }
 			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Total lines',$tmpArr.Count	
+			"$sc${bold}${blu}${fmt_var}${bold_off} : ${ylw}{1}$rc" -f 'Data store','$Global:CMD_OUT'			
 		}
+		$exe_watch.Stop()
     }
-}
-
-function Get-Services($cmds=@("SC")) {
-	foreach ($cmd in $cmds) {
-		switch($cmd) {
-			"SC" { 
-# https://stackoverflow.com/questions/8097354/how-do-i-capture-the-output-into-a-variable-from-an-external-process-in-powershe/35980675#35980675
-# $SC_LINES =sc.exe query 
-# $SC_LINES =sc.exe query  | Out-String -stream  # many lines
-# $SC_OUTPUT=sc.exe query  | Out-String # just one line
-# $SC_LINES =sc.exe query  |? {$_.Trim()} # empty lines removed
-# $SC_LINES =sc.exe query  |% {$_.Trim()} # lines are trimmed
-# $SC_LINES =sc.exe query  |% {$_.Trim()}|? $_ # lines are trimmed, empty lines removed
-
-				$tArr=@(); $Idx=0; $TestCnt=100000
-				exe-cmd="sc.exe query"  # output goes into $Global:CMD_OUT
-
-				##################################
-				 # -replace('(\w+)=([0-9]\w*)  (.+)','$1=$2; $1_INFO="$3"') -replace('(\w+)=([0-9]\w*).*','$1=$2') 
-				$Global:SC_SERVICES=$(
-				##################################
-				$Global:CMD_OUT -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
-				Select-Object -first $TestCnt | % {
-					# '[{0}] {1}' -f $IDX, $_
-					if ($_ -like 'SERVICE_NAME=*') {
-						if ($tArr) {  
-							$tArr=$( $EXTRA=@(); $tArr |% { if($_ -match '\w+=.*' ) { $_ } else {$EXTRA+=@($_)} }; 'SERVICE_ATTR="{0}"' -f $EXTRA )
-							# $scriptblock=[scriptblock]::Create("New-Object -TypeName PSCustomObject -Property ([ordered]@{ IDX=$Idx; $($tArr -join('; '))})")
-							& ([scriptblock]::Create("New-Object -TypeName PSCustomObject -Property ([ordered]@{ IDX=$Idx; $($tArr -join('; '))})"))
-							$Idx++
-						}
-						$tArr=@()
-					}
-					$tArr+=@($_)
-				}
-				##################################
-				)
-				'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
-				##################################
-			}
-
-			"SC2" {
-				##################################
-				exe-cmd "sc.exe query" # output goes into $Global:CMD_OUT
-				$Global:SC_SERVICES=$(
-					##################################
-					
-					# ConvertFrom-StringData $($SC_LINES[0..8] -replace ':','=' -replace '^\(','EXTRA_ATTR=(' -join("`n"))
-					$prevIdx=0
-					$Global:CMD_OUT.Trim() |? {$_.Trim()} -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
-					for ( $Idx=0; $Idx -lt $Global:SC_LINES.Count; $Idx++)  {
-						# '[{0}] {1}' -f $IDX, $_
-						if ($Global:SC_LINES[$Idx] -like 'SERVICE_NAME=*') {
-							[pscustomobject] (ConvertFrom-StringData $($Global:SC_LINES[$prevIdx..$($Idx-1)] -replace '^\(','EXTRA_ATTR:(' -join("`n"))  -Delimiter ':')
-							$prevIdx=$Idx
-						}
-					}
-					##################################
-				)
-				'{0} Services loaded. Use: $SC_SERVICES | select-object -First {0} | Format-Table -auto *' -f $Global:SC_SERVICES.Count
-				##################################
-			}
-
-			"CIM" {
-				$Global:WIN32_SERVICE=Get-CimInstance Win32_Process -ea 0
-			}
-			
-
-			default {
-				$Global:SERVICES=get-service
-			}
-
-		}
+	if ($maxcount) {
+		$Global:CMD_OUT=$Global:CMD_OUT[0..($maxcount-1)]
 	}
 }
 
@@ -899,7 +1235,37 @@ function ps-info ( $names) {
 	''
 }
 
+###############################################
+# CodeExecutor
+function CodeExecutor([string] $Command='ps-info',[switch] $Measure) {
+	#   [CmdletBinding(SupportsShouldProcess = $true,ConfirmImpact = 'Medium')]
+	#	write-output '[CodeExecutor] -- start ----------------------'
+	# 	write-output "command: $command; args[$(($args).length)] : $($args -join ' ')"    
+	#	Invoke-Command -ScriptBlock { & $command @args} -ArgumentList $args
+		# Invoke the script block with `&`
+		# write-output '[CodeExecutor] -- end ----------------------'
+	
+	#   'args[2]:{0} | args[3]:{1}' -f (($args[2]) -join(',')),(($args[3]) -join(','))
+		pargs
+		# "[{0}] {1} arg{2} {3}" -f $MyInvocation.MyCommand, $PSBoundParameters.Count,$(if($PSBoundParameters.Count -ne 1) {"s"}),(($PSBoundParameters.Keys|%{ "-{0}:{1}" -f $_,($PSBoundParameters[$_] -join(","))} ) -join(" "))
+		if ($command) {
+			if ($Measure) {
+				Measure-Command -Expression { & $command @args  | Out-Default }
+			} else {
+				& $command @args
+			}	
+		}
+	}
+	
 
+$stopwatch.Restart()
 
-ps-info @args
+"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
+   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
 
+CodeExecutor @args
+
+"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Elapsed: $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
+   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+
+$stopwatch.Stop()
