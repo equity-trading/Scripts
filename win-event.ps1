@@ -7,10 +7,10 @@ if (!$Global:Users) { $Global:Users=Get-LocalUser }
 ##################################################
 # $Global:EVENTS_OUT_COLS
 $Global:EVENTS_OUT_COLS=@( "MsgNo",
-	@{n='Day'      ;e={$_.TimeCreated.ToString('MM/dd')}}
-	"ProcessId", 
+	@{n='Day'      ;e={$_.TimeCreated.ToString('MM/dd')}},
+	'ProcessId', 
 	@{n='Time'     ;e={$_.TimeCreated.ToString('HH:mm:ss.fff')}}
-	"RecordId",
+	'RecordId',
 	@{n='Lvl'      ;e={'{0}({1})' -f $(Switch ($_.Level) { 0 {"ALW"}; 1 {"CRT"}; 2 {"ERR"}; 3 {"WRN"}; 4 {"INF"}; 5 {"VRB"}; default {"OTH"}}),$_.Level }},
 	@{n='Log'      ;e={$_.LogName -replace '/.*$','' -replace '(Microsoft-Windows-|Microsoft-Client-|-Admin)','' }},
 	@{n='LogType'  ;e={$( $(switch -wildcard ($_.LogName){ 'Microsoft-Windows-*' {'MS-Win'}; 'Microsoft-Client-*' {'MS-Client'};} ),
@@ -20,11 +20,38 @@ $Global:EVENTS_OUT_COLS=@( "MsgNo",
 	@{n='User'     ;e={$Sid=$_.UserId; '{0}' -f $(Switch ($Sid) { 'S-1-5-18' {"LocalSystem"}; 'S-1-5-20' {"NT Authority"}; default {  $($Global:Users |? Sid -like $Sid).Name }; }) }},
 	@{n='OpCode'   ;e={if ($_.Opcode) {'{0}({1})' -f $_.OpcodeDisplayName,$_.Opcode} }},
 	@{n='Task'     ;e={if ($_.Task) {'{0}({1})' -f $_.TaskDisplayName,$_.Task} }},
-	"ThreadId",		
+	'ThreadId',		
 	@{n='KeyWords' ;e={$_.KeywordsDisplayNames -replace('(?<=.{40}).+','..')}},
-	@{n='Message';e={($_.Message,$(($_.Properties | select -first 3 *).Value -join '; ') -join '; ') -replace "^This is the first instance.*$",'' -replace "[`n`r]+",' ' -replace '\s+',' ' -replace '(?<=.{260}).+','...' }}
+	@{n='Message';e={($_.Message,$(($_.Properties | select -first 3 *).Value -join '; ') -join '; ') -replace "^This is the first instance.*$",'' -replace "[`n`r]+",' ' -replace '\s+',' ' -replace '(?<=.{260}).+','...' }},
+	'Id','TimeCreated'
 )
-$Global:EVENTS_EXCL_OUT_COLS=@("Message","Properties","Bookmark","ContainerLog","RelatedActivityId","MatchedQueryIds","ProviderId") 
+$Global:EVENTS_EXCL_OUT_COLS=@("Message","Properties","Bookmark","ContainerLog","RelatedActivityId","MatchedQueryIds","ProviderId",'TimeCreated')
+
+$Global:EVENT_GROUPS_COLS=(
+	@{n='Grp'        ;e={($script:Grp++)}},
+	@{n='LstMsg'     ;e={$_.Group[0].MsgNo}},
+	@{n='Cnt'        ;e={$_.Count}}, 
+	@{n='Days'       ;e={($_.Group.TimeCreated | Group-Object Day).Length}},
+	@{n='LogName'    ;e={$_.Values[0]}},
+	@{n='LogType'    ;e={$_.Values[1]}},
+	@{n='Lvl'        ;e={$_.Values[2]}},
+	@{n='Id'         ;e={$_.Values[3]}},
+	@{n='Prvd'       ;e={$_.Values[4]}},
+	@{n='User'       ;e={$_.Values[5]}},
+	@{n='FstTime'    ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}}},
+	@{n='LstTime'    ;e={$_.Group[0].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}},	
+	@{n='FstRecId'   ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].RecordId}}},
+	@{n='LstRecId'   ;e={$_.Group[0].RecordId}},
+	@{n='LstPid'     ;e={$_.Group[0].ProcessId}},
+	@{n='CntPid'     ;e={($_.Group | Group-Object ProcessID).Length}},
+	@{n='Lst3Pids'   ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count -Top 3 | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},					
+	@{n='ListOfPids' ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},
+	@{n='LstMessage' ;e={$_.Group[0].Message}},
+	"Group"
+)
+
+$Global:EVENT_GROUPS_OUT_COLS=('Grp','LstMsg','Cnt','Days','LogName','LogType','Lvl','Id','Prvd','User','FstTime','LstTime','FstRecId','LstRecId','LstPid','CntPid','Lst3Pids','ListOfPids','LstMessage','Group' )
+$Global:EVENT_GROUPS_EXCL_COLS=("Providers","Group","Values","Msg","ListOfPids","FstRecId","LstPid")
 
 # Error: Log count (463) is exceeded Windows Event Log API limit (256). Adjust filter to return less log names.
 # Examples:  
@@ -351,15 +378,14 @@ function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
 	[string] $CallerPos=$stack[2].Position
 	[string] $CallerName=$stack[2].Command+'('+ $($stack[2].Arguments -replace '{(.*)}','$1' -replace '(?<=.{50}).+','..' ) + ')' ; # 
 	[string[]] $rows=@()
-	
+
 	if($Text) { 
 		if (!$noclr) {
 			$Text=$Text -replace ('Error:',"${sc}${errClr}Error${rc}:") -replace ('Warning:',"${sc}${wrnClr}Warning${rc}:")
 		}
 		
 		$rows+=@($Text)
-	}  
-	
+	}  	
 	foreach ($Var in $Vars) {
 		$rows+=@(pvar -Var:$Var -scope:2)
 	}
@@ -390,6 +416,151 @@ function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
 # Remove-Alias pargs -ErrorAction "SilentlyContinue"
 New-Alias -Name pargs -Value 'DbgInfo-Func' -ErrorAction "SilentlyContinue"
 
+###############################################
+# ConvertTo-Expression
+function ConvertTo-Expression {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Scope = 'Function')] # https://github.com/PowerShell/PSScriptAnalyzer/issues/1472
+    [CmdletBinding()][OutputType([scriptblock])] param(
+        [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')] $Object,
+        [int]$Depth = 9,
+        [int]$Expand = $Depth,
+        [int]$Indentation = 4,
+        [string]$IndentChar = ' ',
+        [string]$Delimiter = ';',
+        [string]$Assign=' = ',
+        [switch]$Strong,
+        [switch]$Explore,
+        [ValidateSet("Name", "Fullname", "Auto")][string]$TypeNaming = 'Auto',
+        [string]$NewLine = [System.Environment]::NewLine,
+        [switch]$niceprint
+    )
+    begin {
+        if(!$niceprint) { 
+            if (!$PSBoundParameters.ContainsKey('NewLine'))     { $NewLine=' '   }
+            if (!$PSBoundParameters.ContainsKey('Indentation')) { $Indentation=0 }
+            if (!$PSBoundParameters.ContainsKey('Assign'))      { $Assign='='    }
+        }
+        $ValidUnqoutedKey = '^[\p{L}\p{Lt}\p{Lm}\p{Lo}_][\p{L}\p{Lt}\p{Lm}\p{Lo}\p{Nd}_]*$'
+        $ListItem = $Null
+        $Tab = $IndentChar * $Indentation
+        function Serialize ($Object, $Iteration, $Indent) {
+            function Quote ([string]$Item) { "'$($Item.Replace('''', ''''''))'" }
+            function QuoteKey ([string]$Key) { if ($Key -cmatch $ValidUnqoutedKey) { $Key } else { Quote $Key } }
+            function Here ([string]$Item) { if ($Item -match '[\r\n]') { "@'$NewLine$Item$NewLine'@$NewLine" } else { Quote $Item } }
+            function Stringify ($Object, $Cast = $Type, $Convert) {
+                $Casted = $PSBoundParameters.ContainsKey('Cast')
+                function GetTypeName($Type) {
+                    if ($Type -is [Type]) {
+                        if ($TypeNaming -eq 'Fullname') { $Typename = $Type.Fullname }
+                        elseif ($TypeNaming -eq 'Name') { $Typename = $Type.Name }
+                        else {
+                            $Typename = "$Type"
+                             if ($Type.Namespace -eq 'System' -or $Type.Namespace -eq 'System.Management.Automation') {
+                                if ($Typename.Contains('.')) { $Typename = $Type.Name }
+                            }
+                        }
+                        if ($Type.GetType().GenericTypeArguments) {
+                            $TypeArgument = ForEach ($TypeArgument in $Type.GetType().GenericTypeArguments) { GetTypeName $TypeArgument }
+                            $Arguments = if ($Expand -ge 0) { $TypeArgument -join ', ' } else { $TypeArgument -join ',' }
+                            $Typename = $Typename.GetType().Split(0x60)[0] + '[' + $Arguments + ']'
+                        }
+                        $Typename
+                    } else { $Type }
+                }
+                function Prefix ($Object, [switch]$Parenthesis) {
+                    if ($Convert) { if ($ListItem) { $Object = "($Convert $Object)" } else { $Object = "$Convert $Object" } }
+                    if ($Parenthesis) { $Object = "($Object)" }
+                    if ($Explore) { if ($Strong) { "[$(GetTypeName $Type)]$Object" } else { $Object } }
+                    elseif ($Strong -or $Casted) { if ($Cast) { "[$(GetTypeName $Cast)]$Object" } }
+                    else { $Object }
+                }
+                function Iterate ($Object, [switch]$Strong = $Strong, [switch]$ListItem, [switch]$Level) {
+                    if ($Iteration -lt $Depth) { Serialize $Object -Iteration ($Iteration + 1) -Indent ($Indent + 1 - [int][bool]$Level) } else { "'...'" }
+                }
+                if ($Object -is [string]) { Prefix $Object } else {
+                    $List, $Properties = $Null; $Methods = $Object.PSObject.Methods
+                    if ($Methods['GetEnumerator'] -is [System.Management.Automation.PsMethod]) {
+                        if ($Methods['get_Keys'] -is [System.Management.Automation.PsMethod] -and $Methods['get_Values'] -is [System.Management.Automation.PsMethod]) {
+                            $List = [Ordered]@{}; foreach ($Key in $Object.get_Keys()) { $List[(QuoteKey $Key)] = Iterate $Object[$Key] }
+                        } else {
+                            $Level = @($Object).Count -eq 1 -or ($Null -eq $Indent -and !$Explore -and !$Strong)
+                            $StrongItem = $Strong -and $Type.Name -eq 'Object[]'
+                            $List = @(foreach ($Item in $Object) {
+                                    Iterate $Item -ListItem -Level:$Level -Strong:$StrongItem
+                                })
+                        }
+                    } else {
+                        $Properties = $Object.PSObject.Properties | Where-Object { $_.MemberType -eq 'Property' }
+                        if (!$Properties) { $Properties = $Object.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' } }
+                        if ($Properties) { $List = [Ordered]@{}; foreach ($Property in $Properties) { $List[(QuoteKey $Property.Name)] = Iterate $Property.Value } }
+                    }
+                    if ($List -is [array]) {
+                        #if (!$Casted -and ($Type.Name -eq 'Object[]' -or "$Type".Contains('.'))) { $Cast = 'array' }
+                        if (!$List.Count) { Prefix '@()' }
+                        elseif ($List.Count -eq 1) {
+                            if ($Strong) { Prefix "$List" }
+                            elseif ($ListItem) { "(,$List)" }
+                            else { ",$List" }
+                        }
+                        elseif ($Indent -ge $Expand - 1 -or $Type.GetElementType().IsPrimitive) {
+                            $Content = if ($Expand -ge 0) { $List -join ', ' } else { $List -join ',' }
+                            Prefix -Parenthesis:($ListItem -or $Strong) $Content
+                        }
+                        elseif ($Null -eq $Indent -and !$Strong -and !$Convert) { Prefix ($List -join ",$NewLine") }
+                        else {
+                            $LineFeed = $NewLine + ($Tab * $Indent)
+                            $Content = "$LineFeed$Tab" + ($List -join ",$LineFeed$Tab")
+                            if ($Convert) { $Content = "($Content)" }
+                            if ($ListItem -or $Strong) { Prefix -Parenthesis "$Content$LineFeed" } else { Prefix $Content }
+                        }
+                    } elseif ($List -is [System.Collections.Specialized.OrderedDictionary]) {
+                        if (!$Casted) { if ($Properties) { $Casted = $True; $Cast = 'pscustomobject' } else { $Cast = 'hashtable' } }
+                        if (!$List.Count) { Prefix '@{}' }
+                        elseif ($Expand -lt 0) { Prefix ('@{' + (@(foreach ($Key in $List.get_Keys()) { "$Key$Assign" + $List[$Key] }) -join "$Delimiter") + '}') }
+                        elseif ($List.Count -eq 1 -or $Indent -ge $Expand - 1) {
+                            Prefix ('@{' + (@(foreach ($Key in $List.get_Keys()) { "$Key$Assign" + $List[$Key] }) -join "$Delimiter") + '}')
+                        } else {
+                            $LineFeed = $NewLine + ($Tab * $Indent)
+                            Prefix ("@{$LineFeed$Tab" + (@(foreach ($Key in $List.get_Keys()) {
+                                            if (($List[$Key])[0] -notmatch '[\S]') { "$Key$Assign" + $List[$Key].TrimEnd() } else { "$Key$Assign" + $List[$Key].TrimEnd() }
+                                        }) -join "$Delimiter$LineFeed$Tab") + "$LineFeed}")
+                        }
+                    }
+                    else { Prefix ",$List" }
+                }
+            }
+            if ($Null -eq $Object) { "`$Null" } else {
+                $Type = $Object.GetType()
+                if ($Object -is [Boolean]) { if ($Object) { Stringify '$True' } else { Stringify '$False' } }
+                elseif ('adsi' -as [type] -and $Object -is [adsi]) { Stringify "'$($Object.ADsPath)'" $Type }
+                elseif ('Char', 'mailaddress', 'Regex', 'Semver', 'Type', 'Version', 'Uri' -contains $Type.Name) { Stringify "'$($Object)'" $Type }
+                elseif ($Type.IsPrimitive) { Stringify "$Object" }
+                elseif ($Object -is [string]) { Stringify (Here $Object) }
+                elseif ($Object -is [securestring]) { Stringify "'$($Object | ConvertFrom-SecureString)'" -Convert 'ConvertTo-SecureString' }
+                elseif ($Object -is [pscredential]) { Stringify $Object.Username, $Object.Password -Convert 'New-Object PSCredential' }
+                elseif ($Object -is [datetime]) { Stringify "'$($Object.ToString('o'))'" $Type }
+                elseif ($Object -is [Enum]) { if ("$Type".Contains('.')) { Stringify "$(0 + $Object)" } else { Stringify "'$Object'" $Type } }
+                elseif ($Object -is [scriptblock]) { if ($Object -match "\#.*?$") { Stringify "{$Object$NewLine}" } else { Stringify "{$Object}" } }
+                elseif ($Object -is [RuntimeTypeHandle]) { Stringify "$($Object.Value)" }
+                elseif ($Object -is [xml]) {
+                    $SW = New-Object System.IO.StringWriter; $XW = New-Object System.Xml.XmlTextWriter $SW
+                    $XW.Formatting = if ($Indent -lt $Expand - 1) { 'Indented' } else { 'None' }
+                    $XW.Indentation = $Indentation; $XW.IndentChar = $IndentChar; $Object.WriteContentTo($XW); Stringify (Here $SW) $Type }
+                elseif ($Object -is [System.Data.DataTable]) { Stringify $Object.Rows }
+                elseif ($Type.Name -eq "OrderedDictionary") { Stringify $Object 'ordered' }
+                elseif ($Object -is [ValueType]) { try { Stringify "'$($Object)'" $Type } catch [NullReferenceException]{ Stringify '$Null' $Type } }
+                else { Stringify $Object }
+            }
+        }
+    }
+    process {
+		if (!$niceprint) {
+			(Serialize $Object).TrimEnd() -replace ('(?s)(`|)\r\n\s*',' ')
+		} else {
+			(Serialize $Object).TrimEnd()
+		}
+    }
+}
 
 ###############################################
 # CodeExecutor
@@ -579,7 +750,7 @@ function Get-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data
     # $script:MsgNo=0; $Global:MyEvents[0..10]| Where-Object $Global:WhereScript | Sort-Object -Descending TimeCreated,RecordId -Top 50 | Select -Property $ColsDefault | ft *
 
 	Get-WinEvents @PsBoundParameters
-	Get-PrintWinEvents @PsBoundParameters
+	Print-MyWinEvents @PsBoundParameters
 
 
 	$duration=[int]($(Get-Date)-$start_tm).TotalMilliseconds
@@ -598,8 +769,8 @@ function Get-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data
 
 #########################################
 # Get-WinEvents
-function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels, $UIDs, $Data, 
-	[int]$Days=1, [int]$Hours, [int]$Minutes, [int]$Seconds, 
+function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3), $UIDs, $Data, 
+	[int]$Days, [int]$Hours=2, [int]$Minutes, [int]$Seconds, 
 	[int]$EndDays, [int]$EndHours, [int]$EndMinutes, [int]$EndSeconds, 
 	$Pids, $Msgs, $RecIds, $ExclLogs, $ExclProviders, $ExclPids, $ExclRecIds, $ExclMsgs,
 	$MaxEvents=50000,
@@ -663,11 +834,10 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels, $UIDs, $
 		if(!$CondArr) { $CondArr=@('1 -eq 1') }
 		$Global:EVENTS_WHERE=$([ScriptBlock]::Create( $($CondArr -join(' -and '))))
 		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry[$grn{3}$gry] $ylw{4}$gry.$rc" -f  @(Get-PSCallStack)[1].InvocationInfo.MyCommand.Name, 
-		   $myscript, $MyInvocation.ScriptLineNumber,
-		   "`$Global:EVENTS_WHERE$blu[$ylw$($CondArr.Count)$blu]", $Global:EVENTS_WHERE.ToString() | Out-Host
+		   $myscript, $MyInvocation.ScriptLineNumber,"`$Global:EVENTS_WHERE$blu[$ylw$($CondArr.Count)$blu]", $Global:EVENTS_WHERE.ToString() | Out-Host
     }
 
-	$Global:EVENTS_LOADER={ $Global:MsgNo=0; $Global:EVENTS=Get-WinEvent @Global:EVENTS_PARAM | Select @{n='MsgNo';e={($Global:MsgNo++)}},*| Where-Object $Global:EVENTS_WHERE; $Global:EVENTS_COUNT=$Global:EVENTS.Count}
+	$Global:EVENTS_LOADER={ $Global:MsgNo=1; $Global:EVENTS=Get-WinEvent @Global:EVENTS_PARAM | Select @{n='MsgNo';e={($Global:MsgNo++)}},*| Where-Object $Global:EVENTS_WHERE; $Global:EVENTS_COUNT=$Global:EVENTS.Count}
 	
 		
 	$PREV_EVENTS_WHERE=$Global:EVENTS_WHERE
@@ -675,12 +845,12 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels, $UIDs, $
 
 	& $Global:EVENTS_PARAM_CMD
 	& $Global:EVENTS_WHERE_CMD
-	$UseCache=$true
+
 	if ($UpdateCache) {
-		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr -UpdateCache$gry is set.$att_clr$gry, forced use loader.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}) | Out-Host
+		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr -UpdateCache$gry is set, forced use loader.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}) | Out-Host
 		$do_load=$true
 	} elseif ($UseCache) { 
-		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr -UseCache$gry is set, will not use  loader$gry.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}) | Out-Host
+		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr -UseCache$gry is set, will not use loader$gry.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}) | Out-Host
 		$do_load=$false
 	} elseif ($PREV_EVENTS_WHERE -eq $Global:EVENTS_WHERE) { 
 		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr $Global:EVENTS_WHERE is same$gry, will not use  loader$gry.$rc" -f $MyInvocation.MyCommand.Name, 
@@ -699,6 +869,11 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels, $UIDs, $
 			'$Global:EVENTS_LOADER',$Global:EVENTS_LOADER | Out-Host
 		$do_load=$true
 	}
+	
+	######################
+	# $do_load=$false
+	######################
+	
 	if ($do_load) {
 		& $Global:EVENTS_LOADER
 	} else {
@@ -720,8 +895,8 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels, $UIDs, $
 }
 
 #########################################
-# Get-PrintWinEvents
-function Get-PrintWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data, 
+# Print-MyWinEvents
+function Print-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data, 
      [int]$Days, [int]$Hours, [int]$Minutes, [int]$Seconds, 
 	 [int]$EndDays, [int]$EndHours, [int]$EndMinutes, [int]$EndSeconds, 
 	 $Pids, $Msgs, $RecIds, $ExclLogs, $ExclProviders=@("PowerShell"), $ExclPids, $ExclRecIds, $ExclMsgs,
@@ -883,15 +1058,209 @@ function Get-PrintWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $D
 ##############################################
 
 
+###############################################
+# Group-WinEvents
+function Group-WinEvents () {
+	param(  [int]      $MaxEvents, 
+	        [string[]] $LogName='*', 
+			[string[]] $ProviderName, 
+			[int[]]    $Levels, 
+			[int[]]    $EventIDs,
+		    [int]      $Days=1, [int] $Hours, [int] $Minutes, [int] $Seconds,
+			[switch]   $UseCache, [switch]$UpdateCache, [switch]$List, [switch]$Table, [switch]$Raw,
+            $Logs, $Pids, $RecIds, $Msgs, $ExclLogs=@('PowerShellCore'),
+			$ExclPids, $ExclRecIds, $ExclMsgs,
+			[int[]]    $Groups, 
+			[int[]]    $Messages,
+			[object[]] $FilterGroupPid,
+			[switch]   $NoTable,
+			[switch]   $Warnings,
+			[switch]   $Errors,
+			[switch]   $ByMsg,
+			[switch]   $AllGroups,
+			[switch]   $AllMessages,
+			[int]      $Top=65, $Cols )
+
+	pargs
+	
+<#	
+	# 'Grouping {0} events into $Global:EVENT_GROUPS ...' -f $Global:EVENTS.Length
+	
+	$TotEvents=$Global:EVENTS.Count
+# 	$Params = @{  Property = $GroupCols }
+	pargs 'Output:$Global:EVENT_GROUPS' -Vars:TotEvents,GroupCols
+	pargs 'GroupCols' -Vals:$GroupCols
+	$FilterArr=@()
+	# if ($ExclLogs) { $FilterArr+=@('$ExclLogs -notcontains $_.Log') }
+	if ($Msgs)   { $FilterArr+=@('$_.Message -like $Msgs') }
+	if ($Pids)   { $FilterArr+=@( '($_.ProcessID -eq {0})' -f $($Pids -join (' -or $_.ProcessID -eq ')) ) }
+	
+	if ($FilterArr.Length) { 
+		$FilterStr='( {0} )' -f $($FilterArr -join (') -and ('))
+		pargs -Vars:FilterStr,FilterArr
+	} else {
+		$FilterStr='1 -eq 1'
+	}
+	$FilterBlock=[scriptblock]::Create( $FilterStr )
+#>	
+
+
+	
+	
+<#
+		*, # @{n='MsgNo';e={($script:MsgNo++)}},
+		    @{n='Log';e={$_.LogName -replace '/.*$','' -replace '(Microsoft-Windows-|Microsoft-Client-|-Admin)','' -replace "PowerShell","PS" }},
+			@{n='Lvl';e={'{0}({1})' -f $(Switch ($_.Level) { 0 {"ALW"}; 1 {"CRT"}; 2 {"ERR"}; 3 {"WRN"}; 4 {"INF"}; 5 {"VRB"}; default {"OTH"}}),$_.Level } },
+			@{n='User';e={$Sid=$_.UserId; '{0}' -f $(Switch ($Sid) { 'S-1-5-18' {"LocalSystem"}; 'S-1-5-20' {"NT Authority"}; default {  $($Global:Users |? Sid -like $Sid).Name }; }) }},
+			@{n='LogType';e={$(
+			        $(switch -wildcard ($_.LogName){ 'Microsoft-Windows-*' {'MS-Win'}; 'Microsoft-Client-*' {'MS-Client'}; 'PowerShell*' {'PS'};}),
+					$(if($_.LogName -like '*-Admin'){'Admin'}),
+			        $(if($_.LogName -like '*/*'){$_.LogName -replace '^.*/','' -replace 'Operational','Oper'}) -ne ''  ) -join(',')}},
+			@{n='Provider';e={$_.ProviderName -replace $($_.LogName `
+			    -replace '/.*$','' `
+			    -replace 'Known Folders.*','KnownFolders' `
+				-replace 'PushNotification','PushNotifications' `
+				-replace 'AppXDeploymentServer','AppXDeployment-Server' `
+				-replace 'Storage-Storport','StorPort' `
+				-replace '(-Events|-Admin)','' `
+				),"*" -replace '(Microsoft-Windows-|Windows-)',''}},
+			@{n='Message2';e={($_.Message,$(($_.Properties | select -first 3 *).Value -join '; ') -join '; ') -replace "^This is the first instance.*$",'' -replace "[`n`r]+",' ' -replace '\s+',' ' -replace '(?<=.{380}).+' }} 
+#>            
+	
+	
+	$Global:MaxGroups=$MaxEvents
+	if(!$Cols) {
+		if ( $Raw ) { 
+			$Cols=@("*")+@(@{N='Original_Message';E={$_.message.Substring(500)}})
+		} else { 
+			$Cols=$Global:EVENTS_OUT_COLS +@(@{N='Original_Message';E={$_.message}})
+		}
+	}
+	<#
+	if (!$ExclCols) {
+		if($Table) { $ExclCols=$Global:EVENTS_EXCL_OUT_COLS} else { $ExclCols=@("Properties") }
+	}
+	#>
+	
+	if ($ByMsg)       {
+		$Global:EventGroupsCols=@("Log","LogType","Message2")
+	} else { 
+		$Global:EventGroupsCols=@("Log","LogType","Lvl","Id","Provider","User")
+	}
+	
+	$Global:EVENTS_COUNT=$Global:EVENTS.Count
+	if ($Top -gt $Global:EVENTS_COUNT) { $Top=$Global:EVENTS_COUNT }
+	$Global:EVENT_GROUPS_SELECT_PARAM_CMD={
+		$Global:EVENT_GROUPS_SELECT_PARAM=@{} + 
+			$( if ( $Cols       ) { @{ Property=$Cols     } } else { @{} } ) +
+			$( if ( $ExclCols   ) { @{ Exclude=$ExclCols  } } else { @{} } ) +
+			$( if ( $Top        ) { @{ First=$Top         } } else { @{} } ) ;		   
+	}
+    'ExclLogs: {0}' -f $($ExclLogs -join('. '))
+	& $Global:EVENTS_WHERE_CMD
+	& $Global:EVENT_GROUPS_SELECT_PARAM_CMD	
+	if (!$Global:EVENT_GROUPS_SELECT_PARAM) { $Global:EVENT_GROUPS_SELECT_PARAM=@{First=1} }
+	
+	$ScriptStr='$Global:EVENT_GROUPS=$Global:EVENTS |Where-Object $Global:EVENTS_WHERE | Select-Object @Global:EVENT_GROUPS_SELECT_PARAM |Group-Object $Global:EventGroupsCols| Select $Global:EVENT_GROUPS_COLS' 
+	$Global:EVENTS_REGROUP_LOADER=[scriptblock]::Create($ScriptStr)
+	$do_regroup=$false
+	if ($UpdateCache) {
+		$do_regroup=$true
+		pargs $('$UpdateCache is $true >>> $do_regroup=$true')
+	} elseif ($UseCache) {
+		$do_regroup=$false
+		pargs $('$UseCache is $true >>> $do_regroup=$false')
+	} elseif (!$Global:EVENTS_REGROUP_COMMAND) { 
+		$do_regroup=$true
+		pargs $('$Global:EVENTS_REGROUP_COMMAND is not set >>> $do_regroup=$true')
+    } else {
+		$NEW_COMMAND='$Global:EVENT_GROUPS=$Global:EVENTS| Select-Object {0}|Where-Object {1} |Group-Object {2}| Select {3}' -f $(ConvertTo-Expression $Global:EVENT_GROUPS_SELECT_PARAM),
+		    $(ConvertTo-Expression $Global:EVENTS_WHERE),$(ConvertTo-Expression $Global:EventGroupsCols),$(ConvertTo-Expression $Global:EVENT_GROUPS_COLS)
+		if ($Global:EVENTS_REGROUP_COMMAND -eq $NEW_COMMAND)  { 
+			$do_regroup=$false 
+			pargs $('$Global:EVENTS_REGROUP_COMMAND is the same  >>> $do_regroup=$false')
+			pargs $('$Global:EVENTS_REGROUP_COMMAND: {0}' -f $Global:EVENTS_REGROUP_COMMAND)
+		} else { 
+			pargs $('$Global:EVENTS_REGROUP_COMMAND is different >>> $do_regroup=$true')
+			$do_regroup=$true 
+		}
+	}
+	
+	if ($do_regroup) {
+		$Global:EVENTS_REGROUP_COMMAND='$Global:EVENT_GROUPS=$Global:EVENTS | Where-Object {0} | Select-Object {1} | Group-Object {2} | Select {3}' -f $(ConvertTo-Expression $Global:EVENTS_WHERE),
+		    $(ConvertTo-Expression $Global:EVENT_GROUPS_SELECT_PARAM),
+		    $(ConvertTo-Expression $Global:EventGroupsCols),$(ConvertTo-Expression $Global:EVENT_GROUPS_COLS)
+	    "$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr regrouping${gry}: {3}$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}), $Global:EVENTS_REGROUP_COMMAND | Out-Host
+		& $Global:EVENTS_REGROUP_LOADER
+		# $Global:EVENTS_REGROUP_COMMAND=$ExecutionContext.InvokeCommand.ExpandString($Global:EVENTS_REGROUP_LOADER -replace '\$Global:EVENTS','`$Global:EVENTS')
+	} else {
+		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr skipping regrouping$gry.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}) | Out-Host
+	}
+		
+	if ($Global:EVENT_GROUPS_COUNT) {  
+		pargs $('{0} events are mapped into {1} group{2} of $Global:EVENT_GROUPS' -f $Global:EVENTS.Length, $Global:EVENT_GROUPS.Length,$(if($Global:EVENT_GROUPS.Length -ne 1) {'s'}))
+	} else {
+		pargs $('Error: {0} events are not mapped into any groups' -f $Global:EVENTS.Length)
+	}
+	return
+}
+
 ##########################################
-# Format-TableMessages
-function Format-TableMessages ([int[]] $Groups, [string[]] $ExclLogs, [string] $Msgs, [int[]] $Pids ) {
+# Print-EventGroupsTable
+function Print-EventGroupsTable ([int]$First=1, [int]$Skip=1, [int]$Top=30 ) {
+	pargs
+	# 'Grouping {0} events into $Global:EVENT_GROUPS ...' -f $Global:EVENTS.Length
+	$TotEvents=$Global:EVENTS.Length
+	
+	if ($Global:EVENT_GROUPS.Length -le 0)  { 
+		pargs 'Warning: $Global:EVENT_GROUPS array is empty'
+		return 
+	}
+	if ( $Skip -le $Global:EVENT_GROUPS.Length ) {
+		
+		pargs $('Printing {0} of {1} groups starting from {2}' -f $First, $Global:EVENT_GROUPS.Length,$Skip)
+		$Skip--
+
+
+#		Sort-Object -stable -descending Count  |
+#        Sort-Object -descending Count,@{e={$(-$_.Group[0].MsgNo)}}  | 		
+	# $PREV_EVENTS_PARAM=$Global:EVENTS_PARAM	
+#	& $Global:EVENTS_PARAM_CMD
+	
+		& $Global:EVENT_GROUPS_LOADER
+		& $Global:EVENTS_WHERE_CMD
+		
+		$Global:EVENT_GROUPS_PRINT={ $Global:Result=$Global:EVENT_GROUPS | Select-Object -First $Top -Property $Global:EVENT_GROUPS_OUT_COLS -ExcludeProperty $Global:EVENT_GROUPS_EXCL_COLS 
+		$Global:Result| ft -auto * }
+		
+		& $Global:EVENT_GROUPS_PRINT
+		'{0} of {1} $Global:EVENT_GROUPS object{2} filtered into $Global:Result' -f $Global:Result.Count,$Global:EVENT_GROUPS.Count,$( if($Global:Result.Count -ne 1){'s'} )
+		'Top {0} of {1} $Global:Result object{2} printed into the above table' -f $Top,$Global:Result.Count,$( if($Top -ne 1){'s'} )
+		
+		$GrpIdx=$($Global:Result[0].Grp-1)
+		$MsgIdx=$($Global:EVENT_GROUPS[$GrpIdx].Group[0].MsgNo-1)
+		'Helpers:'
+		'& $Global:EVENT_GROUPS_PRINT'
+		'$Global:Result[0] | fl * '
+		'$Global:EVENT_GROUPS[{0}] | ft; $Global:EVENTS[{1}] | fl * ' -f $GrpIdx,  $MsgIdx
+		''
+		
+	} else {
+		pargs $('Error: Group Number {0} must be smaller than total amount of groups {1}' -f $Skip, $Global:EVENT_GROUPS.Length)
+	}
+}
+
+
+##########################################
+# Print-TableMessages
+function Print-TableMessages ([int[]] $Groups, [string[]] $ExclLogs, [string] $Msgs, [int[]] $Pids ) {
 	pargs
 	if (!$Groups) {$Groups=1..$Global:EVENT_GROUPS.Count}
 	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
 	$TotEvents=$Global:EVENTS.Length
 	$TotGroups=$Groups.Length
 	$No=0
+	
 	$FilterArr=@()
 	if ($ExclLogs) { $FilterArr+=@('$ExclLogs -notcontains $_.Log') }
 	if ($Msgs)     { $FilterArr+=@('$_.Message -like $Msgs') }
@@ -918,9 +1287,26 @@ function Format-TableMessages ([int[]] $Groups, [string[]] $ExclLogs, [string] $
 }
 
 ##########################################
-# Format-EventsGroupList
-function Format-EventsGroupList ([int[]] $Groups=1, [int[]] $Messages=1) {
+# Print-EventGroups
+function Print-EventGroups ($Groups, $Messages=1, $FilterGroupPids, $AllMessages, $Top, [switch] $NoTable, [switch] $UseCache, [switch]$UpdateCache, [switch]$List, [switch]$Table, [switch]$Raw) {
 	pargs
+
+	if (!$NoTable)  {  
+		Print-EventGroupsTable @PSBoundParameters 
+	}
+
+	if ($FilterGroupPids) {
+		Print-WinEvents @PSBoundParameters 
+		return
+	}
+	if (!$Groups) {
+		pargs 'Warning: No $Groups'
+		return 
+	}
+	
+	if($AllMessages) { 
+		Print-TableMessages @PSBoundParameters 
+	}
 	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
 	$TotEvents=$Global:EVENTS.Length
 	$TotGroups=$Groups.Length
@@ -934,13 +1320,13 @@ function Format-EventsGroupList ([int[]] $Groups=1, [int[]] $Messages=1) {
 			pargs $('Warning: Group {0} does not exists, group number {0} must not exceed total number of groups {1}' -f $Group,$TotGroupedEvents)
 			continue
 		}
-		Format-EventsGroupMsgList -Group $Group -Messages $Messages
+		Print-EventGroupMessages -Group $Group -Messages $Messages
 	}
 }
 
 ##########################################
-# Format-EventsGroupMsgList
-function Format-EventsGroupMsgList ([int] $Group=1, [int[]] $Messages=1,[switch] $UseCache) {
+# Print-EventGroupMessages
+function Print-EventGroupMessages ([int] $Group=1, [int[]] $Messages=1, [switch] $UseCache, [switch]$UpdateCache, [switch]$List, [switch]$Table, [switch]$Raw ) {
     # '[{0}] {1} arg{2} {3}' -f $MyInvocation.MyCommand, $PSBoundParameters.Count,$(if($PSBoundParameters.Count -ne 1) {'s'}),(($PSBoundParameters.Keys|%{ '-{0}:{1}' -f $_,($PSBoundParameters[$_] -join(','))} ) -join(' '))
 	pargs
 	if (!$Group) {
@@ -953,7 +1339,7 @@ function Format-EventsGroupMsgList ([int] $Group=1, [int[]] $Messages=1,[switch]
 		return
 	}
 
-	Format-EventsGroupTable -Skip $Group
+	Print-EventGroupsTable -Skip $Group
 	
 	$TotGroupedEvents=$Global:EVENT_GROUPS.Length
 	$TotEvents=$Global:EVENTS.Count
@@ -996,100 +1382,56 @@ function Format-EventsList ( [int[]] $MsgNo) {
 	}
 }
 
-##########################################
-# Format-EventsGroupTable
-function Format-EventsGroupTable ([int]$First=1, [int]$Skip=1 ) {
-	pargs
-	# 'Grouping {0} events into $Global:EVENT_GROUPS ...' -f $Global:EVENTS.Length
-	$TotEvents=$Global:EVENTS.Length
-	
-	if ($Global:EVENT_GROUPS.Length -le 0)  { 
-		pargs 'Warning: $Global:EVENT_GROUPS array is empty'
-		return 
-	}
-	if ( $Skip -le $Global:EVENT_GROUPS.Length ) {
-		pargs $('Printing {0} of {1} groups starting from {2}' -f $First, $Global:EVENT_GROUPS.Length,$Skip)
-		$Skip--
-
-		$Global:PrintCmd={
-			& $Global:SetCondScriptCmd
-			'$Global:CondScript is {0}' -f $Global:CondScript;
-			$Global:Result=$Global:EVENT_GROUPS | Where-Object $Global:CondScript
-			$Global:Result | Select-Object -First $Global:Top -Property $Global:EVENT_GROUPS_OUT_COLS -ExcludeProperty $Global:EVENT_GROUPS_EXCL_COLS | ft -auto * 
-
-			'{0} of {1} $Global:EVENT_GROUPS object{2} filtered into $Global:Result' -f $Global:Result.Count,$Global:EVENT_GROUPS.Count,$( if($Global:Result.Count -ne 1){'s'} )
-			'Top {0} of {1} $Global:Result object{2} printed into the above table' -f $Global:Top,$Global:Result.Count,$( if($Global:Top -ne 1){'s'} )
-			
-			$GrpIdx=$($Global:Result[0].Grp-1)
-			$MsgIdx=$Global:EVENT_GROUPS[$GrpIdx].Group[0].MsgNo
-			'Helpers:'
-			'& $Global:PrintCmd'
-			'$Global:Result[0] | fl * '
-			'$Global:EVENT_GROUPS[{0}] | ft; $Global:EVENTS[{1}] | fl * ' -f $GrpIdx,  $MsgIdx
-			''
-		}
-		& $Global:PrintCmd
-		
-	} else {
-		pargs $('Error: Group Number {0} must be smaller than total amount of groups {1}' -f $Skip, $Global:EVENT_GROUPS.Length)
-	}
-}
-
 ###############################################
-# Group-WinEvents
-function Group-WinEvents () {
-	pargs
-	# 'Grouping {0} events into $Global:EVENT_GROUPS ...' -f $Global:EVENTS.Length
-	$script:Grp=1
-	$script:MsgNo=1
-	$TotEvents=$Global:EVENTS.Length
-# 	$Params = @{  Property = $GroupCols }
-	pargs 'Output:$Global:EVENT_GROUPS' -Vars:TotEvents,GroupCols
-	pargs 'GroupCols' -Vals:$GroupCols
-	$FilterArr=@()
-	# if ($ExclLogs) { $FilterArr+=@('$ExclLogs -notcontains $_.Log') }
-	if ($Msgs)   { $FilterArr+=@('$_.Message -like $Msgs') }
-	if ($Pids)   { $FilterArr+=@( '($_.ProcessID -eq {0})' -f $($Pids -join (' -or $_.ProcessID -eq ')) ) }
-	
-	if ($FilterArr.Length) { 
-		$FilterStr='( {0} )' -f $($FilterArr -join (') -and ('))
-		pargs -Vars:FilterStr,FilterArr
-	} else {
-		$FilterStr='$_.MsgNo -gt 0'
-	}
-	$FilterBlock=[scriptblock]::Create( $FilterStr )
-	
-	$Global:EVENT_GROUPS=$Global:EVENTS | 
-		Select-Object *, @{n='MsgNo';e={($script:MsgNo++)}},
-		    @{n='Log';e={$_.LogName -replace '/.*$','' -replace '(Microsoft-Windows-|Microsoft-Client-|-Admin)','' -replace "PowerShell","PS" }},
-			@{n='Lvl';e={'{0}({1})' -f $(Switch ($_.Level) { 0 {"ALW"}; 1 {"CRT"}; 2 {"ERR"}; 3 {"WRN"}; 4 {"INF"}; 5 {"VRB"}; default {"OTH"}}),$_.Level } },
-			@{n='User';e={$Sid=$_.UserId; '{0}' -f $(Switch ($Sid) { 'S-1-5-18' {"LocalSystem"}; 'S-1-5-20' {"NT Authority"}; default {  $($Global:Users |? Sid -like $Sid).Name }; }) }},
-			@{n='LogType';e={$(
-			        $(switch -wildcard ($_.LogName){ 'Microsoft-Windows-*' {'MS-Win'}; 'Microsoft-Client-*' {'MS-Client'}; 'PowerShell*' {'PS'};}),
-					$(if($_.LogName -like '*-Admin'){'Admin'}),
-			        $(if($_.LogName -like '*/*'){$_.LogName -replace '^.*/','' -replace 'Operational','Oper'}) -ne ''  ) -join(',')}},
-			@{n='Provider';e={$_.ProviderName -replace $($_.LogName `
-			    -replace '/.*$','' `
-			    -replace 'Known Folders.*','KnownFolders' `
-				-replace 'PushNotification','PushNotifications' `
-				-replace 'AppXDeploymentServer','AppXDeployment-Server' `
-				-replace 'Storage-Storport','StorPort' `
-				-replace '(-Events|-Admin)','' `
-				),"*" -replace '(Microsoft-Windows-|Windows-)',''}},
-			@{n='Message2';e={($_.Message,$(($_.Properties | select -first 3 *).Value -join '; ') -join '; ') -replace "^This is the first instance.*$",'' -replace "[`n`r]+",' ' -replace '\s+',' ' -replace '(?<=.{380}).+' }} |
-			Where-Object $FilterBlock     |
-		Group-Object $Global:EventGroups  | 
-#		Sort-Object -stable -descending Count  |
-        Sort-Object -descending Count,@{e={$(-$_.Group[0].MsgNo)}}  | 
-		Select $Global:EVENT_GROUPS_COLS
-	if ($Global:EVENT_GROUPS.Length) {  
-		pargs $('{0} events has been mapped into {1} group{2} of $Global:EVENT_GROUPS' -f $Global:EVENTS.Length, $Global:EVENT_GROUPS.Length,$(if($Global:EVENT_GROUPS.Length -ne 1) {'s'}))
-	} else {
-		pargs $('Error: {0} events are not mapped into any groups' -f $Global:EVENTS.Length)
-	}
-	return
-}
+# Print-WinEvents
+function Print-WinEvents () {
+	param(  [int]      $MaxEvents, 
+	        [string[]] $LogName='*', 
+			[string[]] $ProviderName, 
+			[int[]]    $Levels, 
+			[int[]]    $EventIDs,
+		    [int]      $Days=1, [int] $Hours, [int] $Minutes, [int] $Seconds,
+			[switch]   $UseCache, [switch]$UpdateCache, [switch]$List, [switch]$Table, [switch]$Raw,
+            $Logs, $Pids, $RecIds, $Msgs, $ExclLogs, $ExclPids, $ExclRecIds, $ExclMsgs,
+			[int[]]    $Groups, 
+			[int[]]    $Messages,
+			[int[]]    $FilterGroupPids,
+			[switch]   $NoTable,
+			[switch]   $Warnings,
+			[switch]   $Errors,
+			[switch]   $ByMsg,
+			[switch]   $AllGroups,
+			[switch]   $AllMessages,
+			[int]      $Top=45 )
 
+	pargs
+	$Pids=@()
+	foreach ( $GroupNo in $FilterGroupPids) {
+		if ($GroupNo -lt 1 -or $GroupNo -gt $TotalGroups) {
+			pargs 'Error: $GroupNo must be greater than zerro andless than total number of groups' -Vars GroupNo,TotalGroups
+			continue
+		}
+		$TotalMessages=$Global:EVENT_GROUPS[$($GroupNo-1)].Group.Count
+		pargs -Vars GroupNo, TotalMessages
+		foreach ( $MsgNo in $Messages  ) {
+			# $G.Group.ProcessId
+			if ($MsgNo -lt 1 -or $MsgNo -gt $TotalMessages) {
+				pargs 'Error: $MsgNo must be greater than zerro andless than total number of messages in the group' -Vars MsgNo,GroupNo,TotalMessages
+				continue
+			}
+			$ThisPid=$Global:EVENT_GROUPS[$($GroupNo-1)].Group[$($MsgNo-1)].ProcessID
+			$Pids+=@($ThisPid)
+		}
+	}
+	$TotPids=$Pids.Length
+	if ($TotPids) {
+		pargs "Found $TotPids Pid$( if ($TotPids) {'s'})" -Vars:TotalGroups,FilterGroupPid,Pids
+		Print-TableMessages @PSBoundParameters
+	} else {
+		pargs 'Error:  $FilterGroupPid is set but not PIDs to filter have been actually found'
+	}
+
+}
 
 ###############################################
 # Get-Events 
@@ -1100,47 +1442,23 @@ function Get-Events {
 			[int[]]    $Levels, 
 			[int[]]    $EventIDs,
 		    [int]      $Days=1, [int] $Hours, [int] $Minutes, [int] $Seconds,
-			[switch]   $UseCache,
+			[switch]   $UseCache, [switch]$UpdateCache, [switch]$List, [switch]$Table, [switch]$Raw,
             $Logs, $Pids, $RecIds, $Msgs, $ExclLogs, $ExclPids, $ExclRecIds, $ExclMsgs,
 			[int[]]    $Groups, 
 			[int[]]    $Messages,
-			[object[]] $FilterGroupPid,
+			[int[]]    $FilterGroupPids,
 			[switch]   $NoTable,
 			[switch]   $Warnings,
 			[switch]   $Errors,
 			[switch]   $ByMsg,
 			[switch]   $AllGroups,
 			[switch]   $AllMessages,
-			[int]      $Top=65 )			
+			[int]      $Top=65 )
 
     pargs
 	
-	$Global:Top=$Top
-	$script:Grp=0
-	$Global:EVENT_GROUPS_COLS=(
-		@{n='Grp'        ;e={($script:Grp++)}},
-		@{n='LstMsg'     ;e={$_.Group[0].MsgNo}},
-		@{n='Cnt'        ;e={$_.Count}}, 
-		@{n='Days'       ;e={($_.Group.TimeCreated | Group-Object Day).Length}},
-		@{n='LogName'    ;e={$_.Values[0]}},
-		@{n='LogType'    ;e={$_.Values[1]}},
-		@{n='Lvl'        ;e={$_.Values[2]}},
-		@{n='Id'         ;e={$_.Values[3]}},
-		@{n='Prvd'       ;e={$_.Values[4]}},
-		@{n='User'       ;e={$_.Values[5]}},
-		@{n='FstTime'    ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}}},
-		@{n='LstTime'    ;e={$_.Group[0].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}},	
-		@{n='FstRecId'   ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].RecordId}}},
-		@{n='LstRecId'   ;e={$_.Group[0].RecordId}},
-		@{n='LstPid'     ;e={$_.Group[0].ProcessId}},
-		@{n='CntPid'     ;e={($_.Group | Group-Object ProcessID).Length}},
-		@{n='Lst3Pids'   ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count -Top 3 | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},					
-		@{n='ListOfPids' ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},
-		@{n='LstMessage' ;e={$_.Group[0].Message2}},
-		"Group"
-    )
-	
-	$Seconds+=($Days*24+$Hours)*3600+$Minutes*60
+<#
+$Seconds+=($Days*24+$Hours)*3600+$Minutes*60
 	$PsBoundParameters['Seconds']=$Seconds 
 	$null=$PSBoundParameters.Remove('Days')
 	$null=$PSBoundParameters.Remove('Hours')
@@ -1155,8 +1473,8 @@ function Get-Events {
  	    $( if( $Msgs        ) { @( '$_.Message -match "{0}"'      -f $($Msgs        -join('|')) ) } else { @() } ) +
  	    $( if( $ExclLogs    ) { @( '$_.LogName -notmatch "{0}"'   -f $($ExclLogs    -join('|')) ) } else { @() } ) +
  	    $( if( $ExclPids    ) { @( '$_.ProcessId -notmatch "{0}"' -f $($ExclPids    -join('|')) ) } else { @() } ) +
- 	    $( if( $ExclRecIds  ) { @( '$_.RecordId -match "{0}"'     -f $($ExclRecIds  -join('|')) ) } else { @() } ) +
- 	    $( if( $ExclMsgs    ) { @( '$_.Message -match "{0}"'      -f $($ExclMsgs    -join('|')) ) } else { @() } ) ;
+ 	    $( if( $ExclRecIds  ) { @( '$_.RecordId -notmatch "{0}"'     -f $($ExclRecIds  -join('|')) ) } else { @() } ) +
+ 	    $( if( $ExclMsgs    ) { @( '$_.Message -notmatch "{0}"'      -f $($ExclMsgs    -join('|')) ) } else { @() } ) ;
 
 		$CondStr=' {0} ' -f $($CondArr -join(' -and '))
 		$Global:CondScript=$([ScriptBlock]::Create($CondStr)) 
@@ -1180,7 +1498,8 @@ function Get-Events {
 	$null=$PSBoundParameters.Remove('AllMessages')
 	$null=$PSBoundParameters.Remove('AllGroups')
 	
-	if($AllGroups) { 
+#>	
+    if($AllGroups) { 
 		if (!$PSBoundParameters.ContainsKey('Groups')) { 
 			$PsBoundParameters['Groups']=$(1..$Global:EVENT_GROUPS.Length) 
 		}
@@ -1201,55 +1520,11 @@ function Get-Events {
 	if (!$UseCache) { 
 		# pargs $( '$MyArgs[{0}]: {1}' -f $MyArgs.Count,(($MyArgs.GetEnumerator()|% { if ($_.Value) { '-{0}:{1}' -f ($_.Name -join(',')),($_.Value -join(',')) }} ) -join(' ')) )
 		Get-WinEvents @PSBoundParameters
-		if ($ByMsg)         {
-			$Global:EventGroups=@("Log","LogType","Message2")
-		} else { 
-			$Global:EventGroups=@("Log","LogType","Lvl","Id","Provider","User")
-		}
 		Group-WinEvents @PSBoundParameters
 	}
+
+	Print-EventGroups @PSBoundParameters
 	
-	$Global:EVENT_GROUPS_EXCL_COLS=("Providers","Group","Values","Msg","ListOfPids","FstRecId","LstPid")
-	$Global:EVENT_GROUPS_OUT_COLS=('*')
-
-	if (!$NoTable)  {  
-		Format-EventsGroupTable @PSBoundParameters 
-	}
-
-	if ($FilterGroupPid) {
-		$Pids=@()
-		foreach ( $GroupNo in $FilterGroupPid) {
-			if ($GroupNo -lt 1 -or $GroupNo -gt $TotalGroups) {
-				pargs 'Error: $GroupNo must be greater than zerro andless than total number of groups' -Vars GroupNo,TotalGroups
-				continue
-			}
-			$TotalMessages=$Global:EVENT_GROUPS[$($GroupNo-1)].Group.Count
-			pargs -Vars GroupNo, TotalMessages
-			foreach ( $MsgNo in $Messages  ) {
-				$G.Group.ProcessId
-				if ($MsgNo -lt 1 -or $MsgNo -gt $TotalMessages) {
-					pargs 'Error: $MsgNo must be greater than zerro andless than total number of messages in the group' -Vars MsgNo,GroupNo,TotalMessages
-					continue
-				}
-				$ThisPid=$Global:EVENT_GROUPS[$($GroupNo-1)].Group[$($MsgNo-1)].ProcessID
-				$Pids+=@($ThisPid)
-			}
-		}
-		$TotPids=$Pids.Length
-		if ($TotPids) {
-			pargs "Found $TotPids Pid$( if ($TotPids) {'s'})" -Vars:TotalGroups,FilterGroupPid,Pids
-			Format-TableMessages @PSBoundParameters
-		} else {
-			pargs 'Error:  $FilterGroupPid is set but not PIDs to filter have been actually found'
-		}
-	} else {
-		if ($Groups)   {
-			if($AllMessages) { 
-				Format-TableMessages @PSBoundParameters 
-			}
-			Format-EventsGroupList @PSBoundParameters
-		}
-	}
 }
 
 <# 
@@ -1274,9 +1549,9 @@ $PrintCmd={
 & $SetCondScriptCmd
 '$Global:CondScript is {0}' -f $Global:CondScript;
 $Global:Result=$Global:MyServices | Where-Object $Global:CondScript
-$Global:Result  | Select-Object -First $Global:Top -Property $Cols -ExcludeProperty $ExclCols | ft -auto * 
+$Global:Result  | Select-Object -First $Top -Property $Cols -ExcludeProperty $ExclCols | ft -auto * 
 '{0} of {1} $Global:MyServices object{2} filtered into $Global:Result' -f $Global:Result.Count,$Global:MyServices.Count,$( if($Global:Result.Count -ne 1){'s'} )
-'Top {0} of {1} $Global:Result object{2} printed into the above table' -f $Global:Top,$Global:Result.Count,$( if($Global:Top -ne 1){'s'} )
+'Top {0} of {1} $Global:Result object{2} printed into the above table' -f $Top,$Global:Result.Count,$( if($Top -ne 1){'s'} )
 
 'Helpers:'
 '$Global:Result[0] | fl * '

@@ -53,3 +53,26 @@ Usage: autorunsc [-a <*|bdeghiklmoprsw>] [-c|-ct] [-h] [-m] [-s] [-u] [-vt] [-o 
          Do not display the startup banner and copyright message.
 
 #>
+
+
+function get-autoruns ( [switch]$UseCache,[switch]$UpdateCache,$autorunsc='C:\home\apps\SysinternalsSuite\autorunsc64.exe' , $params=@('/accepteula', 'a', '*', '-c', '-h', '-s', '-nobanner')) {
+
+	if ($UpdateCache -or (!$UpdateCache -or !$AUTORUN_ARR -or $AUTORUN_ARR.Count -eq 0) ) {
+		$AUTORUN_RAW=& $autorunsc $params
+		$AUTORUN_ARR=$AUTORUN_RAW|% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } | ConvertFrom-Csv
+	}
+	
+	$AUTORUN_ARR.Count # >>> 1541 >>> 1404
+	$exclude='disabled|^$'; $match='P9'; $AUTORUN_ARR |? {$_.Enabled -notmatch $exclude -and $_.'Image Path' -match $match } | Select -First 2000 'Entry Location', Entry, Enabled, Category, 'Image Path'| ft -group 'Image Path' -auto
+
+
+	
+}
+
+####################################
+# SysInternal autorunsc64 -a * -c -h -s -nobanner '*'
+
+
+
+
+get-autoruns @args

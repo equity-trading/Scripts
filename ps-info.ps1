@@ -1,16 +1,16 @@
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $myscript=$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf)
-$e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"; $strk = "$e[9m"; $nrml="$e[29m"
-$red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
 
 #using namespace System.Management.Automation
 # Get-Process WDDriveService,Sysmon,Sysmon,ServiceShell
 
 if (!$Global:Users) { $Global:Users=Get-LocalUser }
 
-$e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; $red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"; $strk = "$e[9m"; $nrml="$e[29m"
+$e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; 
+$red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"; 
 $red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
-$bold="$e[1m";$bold_off="$e[22m";
+$bold="$e[1m";$bold_off="$e[22m"; $strk = "$e[9m"; $strk_off="$e[29m"
+
 $fmt_var="{0,-15}"
 
 
@@ -98,7 +98,7 @@ CimClass, CimInstanceProperties, CimSystemProperties
 
 ##################################
 
-function Get-MyServices($cmds=@("SC")) {	
+function Get-MyServices($cmds=@("SC"),$MaxCount=100000) {	
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on line $cyn{3}$gry at $ylw{4}$gry | $ylw{5}$blu[$ylw{6}$blu]${gry}: $ylw{7}$gry. $rc" -f $MyInvocation.MyCommand.Name, 
 		$myscript,$(&{$MyInvocation.ScriptLineNumber}),$MyInvocation.ScriptLineNumber, $(Get-Date), 
 	   '$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '}) | Out-Host
@@ -114,7 +114,7 @@ function Get-MyServices($cmds=@("SC")) {
 # $SC_LINES =sc.exe query  |% {$_.Trim()} # lines are trimmed
 # $SC_LINES =sc.exe query  |% {$_.Trim()}|? $_ # lines are trimmed, empty lines removed
 
-				$tArr=@(); $Idx=0; $TestCnt=100000
+				$tArr=@(); $Idx=0; 
 				exe-cmd "sc.exe query"  # output goes into $Global:CMD_OUT
 
 				##################################
@@ -122,7 +122,7 @@ function Get-MyServices($cmds=@("SC")) {
 				$Global:SC_SERVICES=$(
 				##################################
 				$Global:CMD_OUT -replace('([\w:]+)\W*:\W*','$1=') -replace('^(\w+)=(.*)','$1="$2"') | 
-				Select-Object -first $TestCnt | % {
+				Select-Object -first $MaxCount | % {
 					# '[{0}] {1}' -f $IDX, $_
 					if ($_ -like 'SERVICE_NAME=*') {
 						if ($tArr) {  
@@ -768,22 +768,7 @@ function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
 }
 
 
-############################################
-# ascii-codes replaces non-ASCII characters with hex codes
-# $orig="`e[33m yellow `e[m"; $orig | ascii-codes
-# 0x1B[33m yellow 0x1B[m
 
-function ascii-codes() {
-    [CmdletBinding()][OutputType([string])] param( [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')] [string[]]$strings )
-	Process {
-		$strings |? {$_} |% { 
-		
-			$orig=$_.TocharArray()
-			$new= ( $orig |% { $code=[int] $_; if ( $code -lt 0x20 -or $code -gt 0x7F  ) {'0x{0,2:X2}' -f [int]$_ } else {$_}} )
-			$new -join ('')
-		}
-	}
-}
 
 function out-dura ($tm_val) {
 	if ( !$tm_val -and $global:prev_time ) { $tm_val = $global:prev_time }
@@ -811,71 +796,6 @@ function out-dura ($tm_val) {
 	}
 	return
 }
-
-function out-duration( [ref] $data, $mode ) {
-    if (!$sc) {
-		$sc="`e[#p"; $rc="`e[#q"; $red="`e[1;31m"; $grn="`e[1;32m"; $ylw="`e[1;33m"; $blu="`e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; 
-		$bold="`e[1m"; $bold_off="`e[22m";
-	}
-
-	if ($data.value -is [DateTime]) { $tm=$data.value }
-	
-	if ( $tm ) {
-		$dura=((Get-Date)-$tm)
-		if($dura.TotalMilliseconds -lt 100) {
-			$fmt="{0,5:g3} Millisecond"
-		} elseif ($dura.TotalSeconds -lt 2) {
-			$fmt="{0,5:g4} Milliseconds"
-		} elseif ($dura.TotalSeconds -lt 10) {
-			$fmt="{3,1}.{1,3} Second"
-		} elseif ($dura.TotalMinutes -lt 1) {
-			$fmt="{3,5} Seconds"
-		} elseif ($dura.TotalHours -lt 1) {
-			$fmt="{4,2}:{3,2:d2} Minutes"
-		} elseif ($dura.TotalHours -lt 24) {
-			$fmt="{5,2}:{4,2:d2}:{3,2:d2} Hours"
-		} else {
-			$fmt="{6,2}:{5,2:d2}:{4,2:d2}:{3,2:d2} Days"
-		}
-
-		$tmp=$fmt -replace(':','')
-		
-		switch($fmt.Length-$tmp.Length) {
-			1 { $fmt_clr="$sc${blu}$fmt$rc" }
-			2 { $fmt_clr="$sc${ylw}$fmt$rc" }
-			3 { $fmt_clr="$sc${mgn}$fmt$rc" }
-			4 { $fmt_clr="$sc${red}$fmt$rc" }
-			default { $fmt_clr="$sc${grn}$fmt$rc" }
-		}
-
-		$fmt_parts=$fmt_clr -split(' ')
-
-		Write-Output "`$mode:$mode `$fmt_parts:$($fmt_parts -join('; '))"
-		Write-Output "$($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days)"
-		Write-Output "`$fmt:$fmt"
-		Write-Output "    fmt: $($fmt     -f $($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days))"
-		Write-Output "`$fmt_clr=$fmt_clr"
-		Write-Output "fmt_clr: $($fmt_clr -f $($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days))"
-
-
-		$fmt_inv="$sc${bold}${grn}{0,-15}${bold_off}: {1}$rc" -f $fmt_parts[1],$fmt_parts[0] 
-
-		Write-Output "`$fmt_inv=$fmt_inv"
-		Write-Output "fmt_inv: $($fmt_inv -f $($dura.TotalMilliseconds), $($dura.Milliseconds), $($dura.TotalSeconds), $($dura.Seconds), $($dura.Minutes), $( $dura.Hours,$dura.Days))"
-
-		switch ($mode) {
-			"inverse" { $out_fmt=$fmt_inv}
-			"colors"  { $out_fmt=$fmt_clr }
-			default   { $out_fmt=$fmt }
-		}
-				
-		Write-Output "`$out_fmt=$out_fmt"
-		Write-Output $($out_fmt -f $dura.TotalMilliseconds, $dura.Milliseconds, $dura.TotalSeconds, $dura.Seconds, $dura.Minutes, $dura.Hours, $dura.Days)
-	}
-	$data.value =Get-Date
-	return
-}
-
 
 function exe-cmd-simple( [string] $cmd_line, [switch]$quiet, [switch] $raw, [int]$sample_lines=4) {
     if (!$sc) {

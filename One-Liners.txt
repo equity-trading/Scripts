@@ -293,7 +293,7 @@ $DRIVER_ARR |? $where_script | Group 'Start Mode',State | select -Property Count
 ####################################
 # SysInternal autorunsc64 -a * -c -h -s -nobanner '*'
 $autorunsc='C:\home\apps\SysinternalsSuite\autorunsc64.exe'
-$AUTORUN_ARR=& $autorunsc /accepteula -a * -c -h -s -nobanner '*' |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } | ConvertFrom-Csv
+$AUTORUN_ARR=& $autorunsc /accepteula -a * -c -h -s -nobanner |% { [regex]::replace($_,'[^\x20-\x7F]','').Trim() } |? { $_ } | ConvertFrom-Csv
 $AUTORUN_ARR.Count # >>> 1541
 $exclude='disabled|^$'; $match='P9'; $AUTORUN_ARR |? {$_.Enabled -notmatch $exclude -and $_.'Image Path' -match $match } | Select -First 2000 'Entry Location', Entry, Enabled, Category, 'Image Path'| ft -group 'Image Path' -auto
 
@@ -1619,6 +1619,49 @@ $var=$global:RemoteAddress_MAP; $($var.Keys)[0].GetType()
 "args[$(($args).Length)]: $($args -join '; ')""args[$(($args).Length)]: $($args -join '; ')"
 $W
 
+##################################
+# Pre-sized arrays
+# You can't change the size of an array once it's created. We can create an array of a pre-determined size by calling it with the new($size) constructor.
+$data = [Object[]]::new(4)
+$data.count
+# 4
+
+# ArrayList
+$myarray = [System.Collections.ArrayList]::new()
+[void]$myArray.Add('Value')
+$myarray[-1]
+# Value
+
+# Generic List
+$mylist = [System.Collections.Generic.List[string]]::new()
+
+# a list for numbers.
+$mylist = [System.Collections.Generic.List[int]]::new()
+$mylist = [System.Collections.Generic.List[int]]@(1,2,3)
+
+# Shorten the syntax with the using namespace statement in PowerShell 5 and newer.
+using namespace System.Collections.Generic
+$myList = [List[int]]@(1,2,3)
+$myList[-1]
+# 3
+# Add() method. Unlike the ArrayList, there is no return value on the Add method so we don't have to void it.
+$myList.Add(10)
+$myList[-1]
+# 10 
+
+# List[PSObject]
+# You can have a list of any type, but when you don't know the type of objects, you can use [List[PSObject]] to contain them.
+$list = [List[PSObject]]::new()
+
+# Remove()
+# The ArrayList and the generic List[] both support removing items from the collection.
+
+using namespace System.Collections.Generic
+$myList = [List[string]]@('Zero','One','Two','Three')
+[void]$myList.Remove("Two")
+Zero
+One
+Three
 
 ##############################
 ##############################
@@ -1627,6 +1670,34 @@ $W
 ######                 #######
 ##############################
 ##############################
+
+#############################################################
+# Print HashTable or Dictionary
+
+"PSBoundParameters[$($PSBoundParameters.Count)]: $($PSBoundParameters.Keys| ForEach-Object { "[$_]='$($PSBoundParameters.$_)'" })"
+'$PsBoundParameters: {0}' -f $( $PsBoundParameters | ConvertTo-Json )
+'$PsBoundParameters: {0}' -f $( $PsBoundParameters | ConvertTo-Json Out-String)
+'{0}' -f  [pscustomobject]$PsBoundParameters
+
+
+[string[]] $l_array = ($PSBoundParameters | Out-String -Stream) -ne '' | select-object -Skip 2; write-output "PSBoundParameters[$(($l_array).Length)]: $($l_array -join '; ')"
+
+$Weekdays = @{Monday = 'Montag';Tuesday = 'Dienstag'}    
+echo $($Weekdays.Keys)[0]
+echo $($Weekdays.Values)[1] 
+
+# @($Global:RemoteAddrMAP.Keys)[0] | % { $k=$_; '"RemoteAddr":"{0}"' -f $k; ConvertTo-JSON $Global:RemoteAddrMAP.$k  -Compress -Depth 5 }
+# ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5
+
+
+#############################################################
+# Print HashTable element
+# https://stackoverflow.com/questions/57594415/powershell-hashtable-show-first-key
+
+
+
+get-connection-map -get; $Global:ConnInfo | ConvertHashtableTo-Object | ft -auto 
+
 
     $Weekdays = @{1 = 'Monday'; 2='Tuesday'; 3='Wednesday'; 4='Thursday'; 5='Friday'}
     $Weekend  = @{6 = 'Saturday'; 7='Sunday'}
@@ -1723,64 +1794,6 @@ $scriptblock=[scriptblock]::Create($ExecutionContext.InvokeCommand.ExpandString(
 0..2 | % { $Idx=$_; "`n** Idx:$Idx"; $ht=& $scriptBlock.GetNewClosure(); $ht; }
 
 
-#############################################################
-# Print HashTable element
-# https://stackoverflow.com/questions/57594415/powershell-hashtable-show-first-key
-
-You can access the Key/ValueCollection inside the hashtable:
-$Weekdays = @{Monday = 'Montag';Tuesday = 'Dienstag'}    
-echo $($Weekdays.Keys)[0]
-echo $($Weekdays.Values)[1] 
-
-function get-connection-map ([switch] $Get) {
-	if( $Get -or !$global:Connection.Length ) { $global:Connection=Get-NetTCPConnection -State Listen,Established -AppliedSetting Internet -ea 0 }
-	$ConnCnt=0; $Global:RemoteAddrMAP=@{}; $Global:ConnPidMAP=@{}; $Global:ConnInfo=@()
-	Foreach($Conn in $Connection ) {
-		
-		[string]$OwningPid=$Conn.OwningProcess; [string]$rAddr=$Conn.RemoteAddress; [string]$rPort=$Conn.RemotePort; [string]$lPort=$Conn.LocalPort
-		
-		$Info=@{ Pid=[string]$C.OwningProcess; LocalPort=[string]$C.LocalPort; RemoteAddress=[string]$C.RemoteAddress; RemotePort=[string]$Conn.RemotePort}
-		
-		if (!$Global:ConnPidMAP.ContainsKey($($Info.Pid))) { $Global:ConnPidMAP.$($Info.Pid)=@{}; $Global:ConnPidMAP.$($Info.Pid).LocalPort=@{Type='LocalPort'} }
-		if (!$Global:ConnPidMAP.$($Info.Pid).LocalPort.ContainsKey($lPort)) { $Global:ConnPidMAP.$($Info.Pid).LocalPort.$lPort=@{};  }
-		$Global:ConnPidMAP.$($Info.Pid).LocalPort.$lPort+=@{ "$rAddr`:$rPort"=$ConnCnt}
-		
-		if ( $Conn.AppliedSetting -eq 'Internet' -and $rAddr -notin '0.0.0.0','127.0.0.1','::' ) {
-			if (!$Global:RemoteAddrMAP.ContainsKey($rAddr)) { 
-				$Global:RemoteAddrMAP.$rAddr=@{}; $Global:RemoteAddrMAP.$rAddr.RemotePort=@{}; $Global:RemoteAddrMAP.$rAddr.OwningPid=@{}; $Global:RemoteAddrMAP.$rAddr.Conn=@()
-			}
-	# Port: Port.$RemotePort.$OwningProcess=@Conn
-			if (!$Global:RemoteAddrMAP.$rAddr.RemotePort.ContainsKey($rPort)) { $Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort=@{} }
-			if (!$Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.ContainsKey($($Info.Pid))) { $Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid)=@{Type='OwningPid'};  }
-			if (!$Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid).ContainsKey($lPort)) { $Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid).$lPort=@{Type='LocalPort';Conn=@()};  }
-			$Global:RemoteAddrMAP.$rAddr.RemotePort.$rPort.$($Info.Pid).$lPort.Conn+=@($ConnCnt)
-			
-	# PID: PID.$OwningProcess.$LocalPort=@RemotePort
-			if (!$Global:RemoteAddrMAP.$rAddr.OwningPid.ContainsKey($($Info.Pid))) { $Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid)=@{ LocalPort=@(); RepotePort=@(); Conn=@()} }
-			$Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid).LocalPort+=@($lPort)
-			$Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid).RepotePort+=@($rPort)
-			$Global:RemoteAddrMAP.$rAddr.OwningPid.$($Info.Pid).Conn+=@($ConnCnt)
-
-	# Conn: Conn=@Conn
-			$Global:RemoteAddrMAP.$rAddr.Conn+=@($ConnCnt)
-			$Info+=@{Type='Internet'}
-		}
-		$Global:ConnInfo+=@( $Info )
-		$ConnCnt++
-		# if ($ConnCnt -gt 1) {break}
-	}
-	'[get-connection-map] $Global:Connection[{0}], $Global:ConnInfo[{0}]; Hashtable: $Global:ConnPidMAP[{1}], $Global:RemoteAddrMAP[{2}]. Use ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5' -f `
-	   $Global:Connection.Length,@($Global:ConnPidMAP.Keys).Length,@($Global:RemoteAddrMAP.Keys).Length
-# @($Global:RemoteAddrMAP.Keys)[0] | % { $k=$_; '"RemoteAddr":"{0}"' -f $k; ConvertTo-JSON $Global:RemoteAddrMAP.$k  -Compress -Depth 5 }
-# ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5
-}
-
-@($Global:RemoteAddrMAP.Keys)[0] | % { $k=$_; '"RemoteAddr":"{0}"' -f $k; ConvertTo-JSON $Global:RemoteAddrMAP.$k  -Compress -Depth 5 }
-
-ConvertTo-JSON $Global:RemoteAddrMAP -Compress -Depth 5 # keys must be strings
-
-get-connection-map -get; $Global:ConnInfo | ConvertHashtableTo-Object | ft -auto 
-
 
 ##################################
 # ConvertHashtableTo-Object
@@ -1813,12 +1826,7 @@ function ConvertHashtableTo-Object {
     }
 }
 
-#############################################################
-# Print HashTable or Dictionary
-"PSBoundParameters[$($PSBoundParameters.Count)]: $($PSBoundParameters.Keys| ForEach-Object { "[$_]='$($PSBoundParameters.$_)'" })"
-[string[]] $l_array = ($PSBoundParameters | Out-String -Stream) -ne '' | select-object -Skip 2; write-output "PSBoundParameters[$(($l_array).Length)]: $($l_array -join '; ')"
-
-##################################
+########################
 ##################################
 ######                     #######
 ######    Objects          #######
@@ -2101,6 +2109,7 @@ something\.\ in\ here\ \(needs\)\ escaping
 # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_regular_expressions?view=powershell-7.2
 
 
+[regex]::Replace(" char:{0} `e[33m yellow `e[m" -f [char]0x7e,"[^ -z]", { param($v); '<{0:X}>' -f  [Convert]::ToUInt32([char]$v.Value) } )
 
 #################################
 # regular expression callback
@@ -2123,7 +2132,6 @@ $re.Replace('', $callback)
 
 #####################################################
 # replace special characters with hex codes
-
 $Global:Backtick = @{}
 foreach ($Char in '0abefnrtv`'.ToCharArray()) {
     $Global:Backtick[$ExecutionContext.InvokeCommand.ExpandString("``$Char")] = "``$Char"
@@ -2134,11 +2142,16 @@ function Escape($Text) {
     [regex]::Replace($Text, $Global:SpecialCharacters, { param($Match) $Backtick[$Match.Value] })
 }
 
+Escape "`e[33m yellow `e[m"
 
+### Convert the character 'A' to its hex equivalent ([int][char] gives the Ascii number and then we convert):
+'0x' + "{0:x}" -f [int][char]'A'
+0x41
 
 #####################################################
 # replace non-ASCII characters with hex codes
 ############################################
+
 # ascii-codes replaces non-ASCII characters with hex codes
 # $orig="`e[33m yellow `e[m"; $orig | ascii-codes
 # 0x1B[33m yellow 0x1B[m

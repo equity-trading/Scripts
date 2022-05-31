@@ -1,3 +1,4 @@
+# https://github.com/iRon7/ConvertTo-Expression
 param( [switch]$Test, [switch]$Measure, [switch]$Verify, [switch]$Quiet )
 
 $WeekdayOrdered = [ordered]@{1 = 'Monday'; 2='Tuesday'; 3='Wednesday'; 4='Thursday'; 5='Friday'}
@@ -188,7 +189,11 @@ function ConvertTo-Expression {
         }
     }
     process {
-        (Serialize $Object).TrimEnd()
+		if (!$niceprint) {
+			(Serialize $Object).TrimEnd() -replace ('(?s)(`|)\r\n\s*',' ')
+		} else {
+			(Serialize $Object).TrimEnd()
+		}
     }
 };
 
@@ -226,29 +231,25 @@ if( !$args ) {
         if (!$quiet) {
             ''
             '-- Iter {0,-3} {1,-20} ----------------------' -f $IterNo,$value.GetType().Name
-            '-- Result Object --------------------------------------'
-            '{0}' -f $($ResultObject[0]|Out-String).Trim()
-        } else {
-            '-- Iter {0,-3} {1,-20} ----------------------' -f $IterNo,$value.GetType().Name
         }
 
         If ($Verify) {
-            $ResultString=@(); $ResultObject=@(); $checksum=@(); $length=@()
+            $MyResultString=@(); $MyResultObject=@(); $checksum=@(); $length=@()
             $global:ResultObject=Invoke-Expression $global:ResultString
-            $ResultString+=@( $global:ResultString )
-            $ResultObject+=@( $global:ResultObject )
+            $MyResultString+=@( $global:ResultString )
+            $MyResultObject+=@( $global:ResultObject )
             $checksum+=@( for(($chksum=0),($pos=0);$pos -lt $global:ResultString.Length ;$pos++) { [int]$chksum+=$global:ResultString[$pos] }; $chksum )
             $length+=@( $global:ResultString.Length )
     
             $global:ResultString=ConvertTo-Expression $global:ResultObject
             $global:ResultObject=Invoke-Expression $global:ResultString
-            $ResultString+=@( $global:ResultString )
-            $ResultObject+=@( $global:ResultObject )
+            $MyResultString+=@( $global:ResultString )
+            $MyResultObject+=@( $global:ResultObject )
             $checksum+=@( for(($chksum=0),($pos=0);$pos -lt $global:ResultString.Length ;$pos++) { [int]$chksum+=$global:ResultString[$pos] }; $chksum )
             $length+=@( $global:ResultString.Length )            
             if (!$quiet) { 
                 '-- Verify Object --------------------------------------'
-                '{0}' -f $($ResultObject[1]|Out-String).Trim()
+                '{0}' -f $($MyResultObject|Out-String).Trim()
                 '-- Checks ---------------------------------------------'
             }
             if( $checksum[0] -eq $checksum[1] ) {
@@ -263,8 +264,8 @@ if( !$args ) {
             }
             if (!$quiet) {             
                 '-- Values ---------------------------------------------'
-                '{0,-12}: {1}' -f 'Result',$ResultString[0].Substring(0,$MaxWidth)+$(if($ResultString[0].Length -gt $MaxWidth){'..'})
-                '{0,-12}: {1}' -f 'Verify',$ResultString[1].Substring(0,$MaxWidth)+$(if($ResultString[1].Length -gt $MaxWidth){'..'})
+                '{0,-12}: {1}' -f 'Result',$MyResultString[0].Substring(0,$MaxWidth)+$(if($MyResultString[0].Length -gt $MaxWidth){'..'})
+                '{0,-12}: {1}' -f 'Verify',$MyResultString[1].Substring(0,$MaxWidth)+$(if($MyResultString[1].Length -gt $MaxWidth){'..'})
                 '-------------------------------------------------------'
                 ''
             }
