@@ -1,133 +1,156 @@
-param ( [Parameter(ValueFromPipeLine = $True)]$InputObject)
-<#
-$SimpleHT  = @{ A1 = "computer"; A2 = "folder"; A3 = "plane"; A4 = "flower"; A5 = "dog"; }
-$ComplexHT = [ordered]@{ 
-    WeekDay = @( [ordered]@{Day   = [pscustomobject]@{abbr='Mon';dayno=1}; Mon="Monday"}, [ordered]@{Day   = [pscustomobject]@{abbr='Tue';dayno=2}; Tue="Tuesday"},
-        [ordered]@{Day   = [pscustomobject]@{abbr='Wen';dayno=3}; Wen="Wednesday"}, [ordered]@{Day   = [pscustomobject]@{abbr='Thu';dayno=4}; Thu="Thursday"},
-        [ordered]@{Day   = [pscustomobject]@{abbr='Fri';dayno=5}; Fri="Friday"}, [ordered]@{Day   = [pscustomobject]@{abbr='Sat';dayno=6}; Sat="Saturday"}, 
-		[ordered]@{Day   = [pscustomobject]@{abbr='Sun';dayno=7}; Sun="Sunday"} )
-    WorkDay=[pscustomobject]@{ Monday = [ordered]@{abbr='Mon';dayno=1}; Tuesday = [ordered]@{abbr='Tue';dayno=2}; Wednesday = [ordered]@{abbr='Wen';dayno=3}; Thursday = [ordered]@{abbr='Thu';dayno=4}; Friday = [ordered]@{abbr='Fri';dayno=5} }
-    WeekEnd=[pscustomobject]@{ Saturday   = [pscustomobject]@{abbr='Sat';dayno=6}; Sunday     = [pscustomobject]@{abbr='Sun';dayno=7} }
-}
-# $tHt=$TestHT3; $DebugPreference=0; Get-String $TestHT3; ConvertTo-Json $tHt -compress
-# $tHt=$TestHT3; $DebugPreference=2; Get-String $TestHT3; ConvertTo-Json $tHt -compress
-# $DebugPreference=0; $tHt=$ComplexHT; $tHt | Get-String ; '{0}' -f ($tHt|ConvertTo-Json -compress -depth 5)
-#> 
+param ( [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')]$Objects, $Depth, [switch]$Cut, [switch]$Cast,[switch]$Test)
+begin {
+# -erroraction:0 doesn't work, see https://github.com/PowerShell/PowerShell/issues/5749
+<#       
+        } elseif( $io -is [hashtable]) {
+            $v='[hashtable]@{{{0}}}' -f $(($io.Keys | Sort |  % { '{0}={1}' -f ( Get-String $_ -iter:$($iter+1)), (Get-String $io.Item($_) -iter:$($iter+1)) }) -join('; '))
+#>			
+<#			
+            'System.Management.Automation.*Info' {$t=''}
+			'System.Collections.ObjectModel.*'   {$t=''}
+			default { $t='[{0}]' -f $io.PsObject.TypeNames[0] } 
+#>			
 
-function Get-String( [Parameter(ValueFromPipeLine = $True)] $InputObject, $Depth=10, $MaxCount=200, $Iteration) {
-	if (!$Iteration) { $Iteration=0; $Global:TotalElements=0 }
-	$Iteration++
-	$Global:TotalElements++
+	$e=[char]27; $nl=[char]10; $sc="$e[#p"; $rc="$e[#q"; $nc="$e[m"; 
+	$red="$e[1;31m"; $grn="$e[1;32m";  $ylw="$e[1;33m";  $blu="$e[1;34m"; $mgn="$e[1;35m"; $cyn="$e[1;36m"; $gry = "$e[1;30m"; 
+	$red2="$e[0;31m"; $grn2="$e[0;32m"; $ylw2="$e[0;33m"; $blu2="$e[0;34m";  $mgn2="$e[0;35m";  $cyn2="$e[0;36m"; 
+	$bold="$e[1m";$bold_off="$e[22m"; $strk = "$e[9m"; $strk_off="$e[29m"
 
-	if ($Iteration -gt $Depth) {
-		Write-Warning "Depth exceeds -Depth:$Depth ..."
-		return "..."
-	}
-	
-	if ($Global:TotalElements -gt $MaxCount) {
-		Write-Warning "Number of Elements exceeds -MaxCount:$MaxCount ..."
-		return " ..."
-	}
-	
-	if (!$InputObject) { 
-		return ""
-	} elseif ($InputObject -is [string]) { 
-		return "`"$InputObject`""
-	} elseif ($InputObject -is [valuetype]) { 
-		return "$InputObject"
-	}
 
-	$Methods = $InputObject.PSObject.Methods
-	if ($Methods['GetEnumerator'] -is [System.Management.Automation.PsMethod]) {
-		if ($Methods['get_Keys'] -is [System.Management.Automation.PsMethod] -and $Methods['get_Values'] -is [System.Management.Automation.PsMethod]) {
-			$List=$InputObject.GetEnumerator() | Sort-Object -Property Key
-		} else {
-			$Arr = @()
-			foreach ($Item in $InputObject) { $Arr+=@(Get-String -InputObject:$Item -Iteration:$Iteration -Depth:$Depth -MaxCount:$MaxCount ) }
-			return "@( $($Arr -join ', ') )"
+    function Get-String( $o, [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')] $Objects, [switch]$Cut, [switch]$Cast, [int]$Depth=10) {
+		if($Objects.Count) {  
+			$script:Cut,$script:Cast,$script:MaxDepth,$script:MaxTotal,$script:depth=$Cut,$Cast,$Depth,500,0
+		} else { $Objects=$o }
+		$script:depth++;
+		foreach ($io in $Objects) {
+			$script:total++;
+			$v=$null
+			# if ($io.GetType -isnot [System.Management.Automation.PsMethod]) { return '$null' } 
+			if (!$io.PsObject.TypeNames) { '$null'; continue } 
+			switch -wildcard ($io.PsObject.TypeNames[0]) {
+				'System.Management.Automation.PSCustomObject' {$t='[PSCustomObject]'}
+				'System.Collections.Generic.List*'  {$t='[System.Collections.Generic.List[object]]'}
+				'System.Collections.ArrayList'  {$t='[System.Collections.ArrayList]'}
+				default {  $t='[{0}]' -f $io.PsObject.TypeNames[0] }
+			}
+			if ( !$io) {
+				$v='""'
+			} elseif ( $io -is [string]) {
+				$v='"{0}"' -f $($io -replace ('"','`"') )
+			} elseif( $io -is [DateTime]) {
+				$v="'$io'"
+			} elseif( $io -is [TimeSpan]) {
+				$v="'$io'"
+			} elseif( $io -is [scriptblock]) {
+				$v='{{{0}}}'-f $io.ToString()
+			} elseif( $io -is [valuetype]) {
+				$v="'$io'"
+			} 
+			if (!$v) {
+				if ($script:depth -gt $script:MaxDepth) {
+					Write-Warning "Depth <$script:depth> exceeds -depth:$script:MaxDepth, skipping"; 
+					$v='<too deep>'
+				} elseif ( $io.GetEnumerator -is [System.Management.Automation.PsMethod] -and $io.IndexOf -is [System.Management.Automation.PsMethod] ) {
+					$v='@({0})'  -f $(($io.GetEnumerator() |% { '{0}' -f $(Get-String $_)} ) -join(', '))
+				} elseif ( $io.GetEnumerator -is [System.Management.Automation.PsMethod] ) {
+					$v='@{{{0}}}'  -f $(($io.GetEnumerator() |% {  # | Sort @{ E={ $_.Key } }
+						'{0}={1}' -f (Get-String $_.Key), (Get-String $_.Value) }) -join('; '))
+				} else {
+					$props=$io.PSObject.Properties |? {$_.MemberType -eq 'NoteProperty'}
+					if ($props.Count -eq 0) { $props=$io.PSObject.Properties }
+					$v='@{{{0}}}'  -f $(( $props | Sort Name |% {
+					   '{0}={1}' -f (Get-String $_.Name), (Get-String $_.Value) })  -join('; '))
+				}
+				if(!$iter) {  
+					if($script:Cut){
+						$max=$Host.UI.RawUI.WindowSize.Width
+						if($v.Length -gt $max ) { $v=$v.substring(0,$max-2)+".." }
+					}
+				}		
+			}
+			if ($script:Cast) {
+				'{0}{1}' -f $t,$v
+			} else {
+				'{0}{1}' -f $t,$v
+			}
 		}
+		$script:depth--;
+        return
+    }
+	function Get-String-Test-MyInvocation() { 
+		
+		script:Get-String -Objects:$MyInvocation -Cast
+	}
+	function Out-Log($LogStr,$ms) { 
+		$LogStr=' [Done] Total:{0} of {1}; Depth:{2} of {3}; Cut:{4} Cast:{5}' -f $script:total, $script:MaxTotal, $script:depth, $script:MaxDepth, $script:Cut, $script:Cast
+		"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Elapsed: $grn{3}$gry ms$rc" -f 'Main', (Split-Path $MyInvocation.ScriptName -leaf), $MyInvocation.ScriptLineNumber, $stopwatch.Elapsed.TotalMilliseconds,$LogStr
+	}
+		
+	function Get-String-Test() { 
+		
+		# script:Get-String -io:$MyInvocation -Cast
+		$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+		$num=1234567890
+		$str=[string]$num
+		$date=Get-Date
+		$interval=(Get-Date) - (Get-Date).AddSeconds(-11)
+		$ht=@{t=''; num=$num; str=$str; date=$date; interval=$interval }
+		$obj=[pscustomobject]$ht
+		$arr=@($str,$num,$interval,$date,$ht,$obj,$null)
+		$arrlist=[System.Collections.ArrayList]$arr
+		$list=[System.Collections.Generic.List[object]]$arr
+		
+		$num2=1234567890.123456
+		$str2=(1..500|%{ $_}) -join (' ')
+		$ht2=@{t=$null;  num=$num; str=$str2; date=$date; interval=$interval; num2=$num2; str2=$str2;}
+		$obj2=[psobject]$ht2
+		$arr2 = [Object[]]::new(10)
+		$arr2[0],$arr2[1],$arr2[2],$arr2[3],$arr2[4],$arr2[5],$arr2[6],$arr2[7],$arr2[8]=$str,$str2,$num,$num2,$date,$interval,$ht,$obj,$ht2,$obj2
+		$arrlist2=[System.Collections.ArrayList]$arr2
+		$list2=[System.Collections.Generic.List[object]]$arr2
+		
+		
+		$ht3=@{t=1; 1='t'; 't 1'=''; ''='t 1'; null=$null}
+		$obj3=[pscustomobject]@{t=1; 1='t'; 't 1'=''; null=$null}
+		$arr3=@('',$ht2,$obj2,$str2,$num2,$interval,$null)
+	
+		$ht4=@{ $ht=$ht; $obj=$obj }
+		$obj4=[pscustomobject]$ht4
+		$arr4=@( '', 'Test', @{ ''=''; test4=4; 4=4; 'test 4'='test 4'; null=$null })
+	
+		$ht5=@{t=1; @{ t=@{t=1} }=1 }    
+		$obj5=[pscustomobject]$ht5
+
+		'== Test 1 =='
+		$stopwatch.Restart()
+		$str,$num,$date,$interval,$ht,$obj,$arr,$arrlist,$list | Get-String -Cast
+
+		'== Test 2 =='
+		$str2,$num2,$ht2,$obj2,$arr2,$arrlist2,$list2 | Get-String -Cast -Cut
+		' [Done] Total:{0} of {1}; Depth:{2} of {3}; Cut:{4} Cast:{5}' -f $script:total, $script:MaxTotal, $script:depth, $script:MaxDepth, $script:Cut, $script:Cast
+		'== Test 3 =='
+		$ht3,$obj3,$arr3 | Get-String -Cut
+		' [Done] Total:{0} of {1}; Depth:{2} of {3}; Cut:{4} Cast:{5}' -f $script:total, $script:MaxTotal, $script:depth, $script:MaxDepth, $script:Cut, $script:Cast
+		'== Test 4 =='
+		$ht4,$obj4,$arr4 | Get-String 
+		' [Done] Total:{0} of {1}; Depth:{2} of {3}; Cut:{4} Cast:{5}' -f $script:total, $script:MaxTotal, $script:depth, $script:MaxDepth, $script:Cut, $script:Cast
+		'== Test 5 =='
+		$ht5,$obj5       | Get-String
+		' [Done] Total:{0} of {1}; Depth:{2} of {3}; Cut:{4} Cast:{5}' -f $script:total, $script:MaxTotal, $script:depth, $script:MaxDepth, $script:Cut, $script:Cast
+		'== Done =='
+	}
+
+}
+
+# $io | Get-String @PsBoundParameters
+process {
+	if ($Test) {
+		$null=$PSBoundParameters.Remove('Test')
+		# Get-String-Test-MyInvocation @PsBoundParameters
+		Get-String-Test @PsBoundParameters
 	} else {
-		$List = $InputObject.PSObject.Properties | Where-Object { $_.MemberType -eq 'Property' }
-		if (!$List) {  $List = $InputObject.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' } }
+		Get-String @PsBoundParameters
 	}
-	if (!$List) { return "" }
-	$Arr=$()
-	$List |% { 
-		$Key = $_.Name
-		$Val = Get-String -InputObject:$_.Value -Iteration:$Iteration -Depth:$Depth -MaxCount:$MaxCount
-		$Arr+=@( "$Key=$Val" )
-	}
-	return "@{ $($Arr -join '; ') }"
+    
 }
-
-
-function Get-String-Dbg ( [Parameter(ValueFromPipeLine = $True)] $InputObject, $Depth=10, $MaxCount=200, $Iteration) {
-	if (!$Iteration) { $Iteration=0; $Global:TotalElements=0 }
-	$Iteration++
-	$Global:TotalElements++
-	Write-Debug $('Iter: {0} Max: {1} TotalElements: {2}  Obj: {3}' -f $Iteration, $Depth, $Global:TotalElements, ($InputObject|Out-String))
-
-	if ($Iteration -gt $Depth) {
-		Write-Warning "Depth exceeds -Depth:$Depth ..."
-		return "..."
-	}
-	
-	if ($Global:TotalElements -gt $MaxCount) {
-		Write-Warning "Number of Elements exceeds -MaxCount:$MaxCount ..."
-		return " ..."
-	}
-	
-	if (!$InputObject) { 
-		return ""
-	} elseif ($InputObject -is [string]) { 
-		return "`"$InputObject`""
-	} elseif ($InputObject -is [valuetype]) { 
-		return "$InputObject"
-	}
-
-	if ($DebugPreference) {
-		$Methods = ($InputObject | gm -MemberType method).Name
-		Write-Debug $('Type: {0} Methods[{1}]: {2} ' -f $InputObject.GetType(), $Methods.count, ($Methods -join(', ')))
-	}
-	
-	$Methods = $InputObject.PSObject.Methods
-	Write-Debug $('Type: {0} Methods[{1}]: {2} ' -f $InputObject.GetType(), $Methods.count, ($Methods -join(', ')))
-	
-	if ($Methods['GetEnumerator'] -is [System.Management.Automation.PsMethod]) {
-		Write-Debug "GetEnumerator"
-		if ($Methods['get_Keys'] -is [System.Management.Automation.PsMethod] -and $Methods['get_Values'] -is [System.Management.Automation.PsMethod]) {
-			Write-Debug "List"
-			$Arr=@()
-			$List=$InputObject.GetEnumerator() | Sort-Object -Property Key
-		} else {
-			Write-Debug "Arr"
-			$Arr = @()
-			foreach ($Item in $InputObject) { $Arr+=@(Get-String -InputObject:$Item -Iteration:$Iteration -Depth:$Depth -MaxCount:$MaxCount ) }
-			return "@( $($Arr -join ', ') )"
-		}
-	} else {
-		Write-Debug "Try Properties"
-		$List = $InputObject.PSObject.Properties | Where-Object { $_.MemberType -eq 'Property' }
-		if (!$List) { 
-			Write-Debug "Try NoteProperty"
-			$List = $InputObject.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' } 			
-		}
-	}
-	if (!$List) {
-		Write-Debug "List is missing"
-		return ""
-	}
-	$Arr=$()
-	$List |% { 
-		$Key = $_.Name
-		$Val = Get-String -InputObject:$_.Value -Iteration:$Iteration -Depth:$Depth -MaxCount:$MaxCount
-		$Arr+=@( "$Key=$Val" )
-	}
-	return "@{ $($Arr -join '; ') }"
-}
-
-# $InputObject | Get-String @PsBoundParameters
-
-Write-Debug $('args: {0} PsBoundParameters:{1}' -f $($args|Out-String), $($PsBoundParameters|Out-String) ) 
-
-$InputObject | Get-String @args

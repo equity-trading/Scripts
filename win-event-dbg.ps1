@@ -53,42 +53,133 @@ $Global:EVENT_GROUPS_COLS=(
 $Global:EVENT_GROUPS_OUT_COLS=('Grp','LstMsg','Cnt','Days','LogName','LogType','Lvl','Id','Prvd','User','FstTime','LstTime','FstRecId','LstRecId','LstPid','CntPid','Lst3Pids','ListOfPids','LstMessage','Group' )
 $Global:EVENT_GROUPS_EXCL_COLS=("Providers","Group","Values","Msg","ListOfPids","FstRecId","LstPid")
 
-# $DebugPreference=0; $tHt=$ComplexHT; $tHt | Get-String ; '{0}' -f ($tHt|ConvertTo-Json -compress -depth 5)
-function Get-String( [Parameter(ValueFromPipeLine = $True)] $InputObject, $Depth=10, $MaxCount=500, $Iteration) {
-	if (!$Iteration) { $Iteration=0; $Global:TotalElements=0 }
-	$Iteration++; $Global:TotalElements++
-	if ($Iteration -gt $Depth) { Write-Warning "Depth exceeds -Depth:$Depth ..."; return "..." }
-	if ($Global:TotalElements -gt $MaxCount) { Write-Warning "Number of Elements exceeds -MaxCount:$MaxCount ..."; return "..." }
-	
-	if (!$InputObject) { 
-		return ""
-	} elseif ($InputObject -is [string]) { 
-		return "`"$InputObject`""
-	} elseif ($InputObject -is [valuetype]) { 
-		return "$InputObject"
-	}
+# Error: Log count (463) is exceeded Windows Event Log API limit (256). Adjust filter to return less log names.
+# Examples:  
+#            Win-Event.ps1                                 # last 50000 error events, see output in C:\home\data\Reports\Get-Events-2022-05-18.txt
+#            Win-Event.ps1 Get-MyWinEvents                 # last 50000 error events, see output in C:\home\data\Reports\Get-Events-2022-05-18.txt
+#            Win-Event.ps1 Get-MyWinEvents -Table -Raw -ExclLogs:("Core","Store") -Top:10 -Pids:1608
+#            Win-Event.ps1 Get-MyWinEvents -List  -Raw -ExclLogs:("Core","Store") -Top:2
+#            Win-Event.ps1 -Hours 1                        # All events during last hour
+#            Win-Event.ps1 -Pids:1608 -Group 15
+#            Win-Event.ps1 -Msgs:'SCM Event' -Top:40
+#            Win-Event.ps1 -Days 10 -Warning -Groups 1,2,3 # 10 days of error and warnings, see output in C:\home\data\Reports\Get-Events-2022-05-18-warnings.txt
+#            test1.ps1 -Hour 1  -Warning -ExclLogs PSCore,LiveId # exclude logs PSCore and LiveId from the table of groups
+#            test1.ps1 -Hour 5  -Warning -ExclLogs PSCore,LiveId -Msgs '*sqlite3_exec*'
+#
+#  All Messages from the given PID, during 13 hours, printed in groups
+#            Win-Event.ps1 -Hour 13 -Pids 20992 -AllGroups -AllMessages 
+#            Win-Event.ps1 -Hour 13 -Pids 20992 -AllGroups -AllMessages -UseCache
+#            Win-Event.ps1 -UseCache -FilterGroupPid:1
+#  Alternatives:
+#
+#              $ProcId=($Global:EVENT_GROUPS[0].Group | Group-Object ProcessID | Sort-Object -Descending Count | select @{n='ProcessId';e={$_.Values[0]}},Count)[1].ProcessId
+#              $EVENT_GROUPS.Group |? ProcessId -eq $ProcId | Sort-Object -Top 10 -Descending TimeCreated| ft -wrap ProcessId,ThreadId,UserId,MsgNo,TimeCreated,Lvl,Id,ProviderName,OpcodeDisplayName,KeywordsDisplayNames,Message
+#  one-liners:
+# $GrpNo=0; $PidNo=0; $TopCnt=2; $EVENT_GROUPS.Group |? ProcessId -eq $($Global:EVENT_GROUPS[$GrpNo].Group | Group-Object ProcessID | Sort-Object -Descending Count )[$PidNo].Values[0]| Sort-Object -Top $TopCnt -Descending TimeCreated | ConvertTo-Json -depth 3
 
-	$Methods = $InputObject.PSObject.Methods
-	if ($Methods['GetEnumerator'] -is [System.Management.Automation.PsMethod]) {
-		if ($Methods['get_Keys'] -is [System.Management.Automation.PsMethod] -and $Methods['get_Values'] -is [System.Management.Automation.PsMethod]) {
-			$List=$InputObject.GetEnumerator() 
-		} else {
-			$Arr = @()
-			foreach ($Item in $InputObject) { $Arr+=@(Get-String -InputObject:$Item -Iteration:$Iteration -Depth:$Depth -MaxCount:$MaxCount ) }
-			return "@( $($Arr -join ', ') )"
-		}
-	} else {
-		$List = $InputObject.PSObject.Properties | Where-Object { $_.MemberType -eq 'Property' -or $_.MemberType -eq 'NoteProperty' }
-	}
-	if (!$List) { return "" }
-	$Arr=$(); $List | Sort-Object -Property Name | % { 
-		$Key = $_.Name
-		$Val = Get-String -InputObject:$_.Value -Iteration:$Iteration -Depth:$Depth -MaxCount:$MaxCount
-		$Arr+=@( "$Key=$Val" )
-	}
-	return "@{ $($Arr -join '; ') }"
+<# 
+ $GrpNo=0; $PidTop=1; $EventTop=3
+ $WinEventCols="ProcessId","ThreadId","UserId","MsgNo","TimeCreated","Lvl","Id","ProviderName","OpcodeDisplayName","KeywordsDisplayNames","Message"
+ # $WinEventExlcudeCols="Message","ProviderName","KeywordsDisplayNames"
+ foreach($P in $($Global:EVENT_GROUPS[$GrpNo].Group | Group-Object ProcessID | Sort-Object -Top $PidTop -Descending Count).Values) { 
+	"*** ProcessID:$P ***"; $EVENT_GROUPS.Group |? ProcessId -eq $P | 
+	 Sort-Object -Top $EventTop -Descending TimeCreated | 
+	 Select-Object @{}+|
+	 ft -wrap *
+ }
+#>
+#              $EVENT_GROUPS[0..10].Group |? ProcessId -eq 20992 | ft MsgNo,TimeCreated,ProcessId,Log,LogType,Provider,Lvl,Id,Version,Level,Task,Opcode,Keywords,RecordId,Message2
+#              $EVENT_GROUPS[0..10] |? { $_.Group.ProcessId -eq 20992} 
+#              ft TimeCreated,ProcessId,Log,LogType,Provider,Lvl,Id,Version,Level,Task,Opcode,Keywords,RecordId,Message2
+#              search in $EVENT_GROUPS  by last pid
+#              $EVENT_GROUPS | ? LstPid -eq 13240 | ft *             
+#
+# All Messages produced by the process of the first messages of the group 1, during 13 hours, printed in groups
+#            Win-Event.ps1 -Hour 13 -FilterGroupPid 1 -AllGroups -AllMessages 
+#
+#            Win-Event.ps1 -EventIDs 613 # EventID during last 24 hours 
+#            Win-Event.ps1 -Msgs '*sqlite3_exec*'
+#            test1.ps1 -Groups 1          # 
+#            test1.ps1 -NoTable -Group 1  # last 10 error events and xml sampler
+#            test1.ps1 -warn          # last 20 errors and warnings
+#            test1.ps1 500            # last 500 error events
+#            test1.ps1 500 -warn      # last 500 error events
+#            test1.ps1 2000 -warn -UseCache -Group 1
+#            test1.ps1 -warn -MaxEvents 10000 -Groups 1,2
+#            test1.ps1 -UseCache -Groups 1,2
+#            
+#            
+#            Get-XmlEvent -Hours 12 -Providers  Microsoft-Windows-Hyper-V-VmSwitch
+#            Get-XmlEvent -Hours 12 -ExceptProviders  Microsoft-Windows-Hyper-V-VmSwitch
+#            Get-XmlEvent -Hours 12 -ExceptProviders  Microsoft-Windows-Hyper-V-VmSwitch,Microsoft-Windows-Security-Auditing
+#
+# ^^^^^^  OneLiners ***********
+#       Get-WinEvent -FilterHash @{LogName='*'; Level=1,2} -Max 1 | fl *
+#       (Get-WinEvent -FilterHash @{LogName='*'; Level=1,2} -Max 1).ToXML() -replace("><",">`n<") -split("`n")
+#       Get-WinEvent -FilterHash @{LogName='*'; Level=1,2} -Max 1 | ConvertTo-JSON
+# ^^^^^^  Use ConvertTo-JSON to read messges ***********
+#       $E=(Get-WinEvent -FilterHash @{LogName='*'; Level=1,2} -Max 1); Get-WinEvent $E.LogName -FilterXPath "*[System[EventRecordID=$($E.RecordID)]]" | ConvertTo-JSON
+
+
+function fnc-start() {
+	
+	if (!$global:myscript) { $global:myscript=Split-Path $MyInvocation.ScriptName -leaf }
+	if (!$global:mywatch) { $global:mywatch=[System.Diagnostics.Stopwatch]::New() }
+    
+	$fmt="$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. "+
+	"Called from line $cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" 
+	
+	$fmt -f $MyInvocation.MyCommand, $global:myscript, $MyInvocation.ScriptLineNumber,
+		$global:mywatch.Elapsed.milliseconds, $global:mywatch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $(Get-Date), 
+		'$PsBoundParameters', $(@($PsBoundParameters.Keys).Count), 
+		$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
 }
 
+function fnc-stop() {
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
+	$script:watch.Elapsed.milliseconds, $script:watch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
+	'$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
+}
+
+function fnc-test($arg1,$arg2='2',$arg3) {
+	fnc-start
+	$test_var="test"
+	'args' -f $( $args | ConvertTo-Json )
+	
+	'$PsBoundParameters: {0}' -f $( $PsBoundParameters | ConvertTo-Json )
+	fnc-stop
+}
+
+
+#############################################################
+#
+# Print Variables
+#
+#############################################################
+
+###############################################
+# Convert-HashToString
+function Convert-HashToString([hashtable]$value) {
+	($value.GetEnumerator()|% { 
+		$k=$_.Name; $v=$_.Value; '{0}="{1}";' -f $k, $( 
+			if($v -is [hashtable]){
+				$v.GetEnumerator()|% {'{0}="{1}";' -f $_.Name,$_.Value}
+			} elseif($v -is [array]) {
+				($v|% {
+					$va=$_; 
+					$(if($va -is [hashtable]) {
+						$va.GetEnumerator()|% {'{0}="{1}";' -f $_.Name,$_.Value} 
+					} else {
+						'[{0}]{1}' -f $va.GetType(),$va.ToString() 
+					} )
+				}) -join(",") 
+			} else {
+				'[{0}]{1}' -f $v.GetType(),$v.ToString()
+			}
+		)
+	}) -join(';')  -replace ("\s+",' ')
+}
+	   
 function pval($vals, [int]$max=1000, [switch]$noclr, [int]$depth=2, [string[]]$exclude=("*properties","*class"), [switch]$nocompress, [int]$first=1, [string]$separator="`n") {
 	[string []] $rows=@()
 	# 'vals:{0}' -f $vals
@@ -1102,7 +1193,7 @@ function Group-WinEvents () {
 	    "$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr regrouping${gry}: {3}$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}), $Global:EVENTS_REGROUP_COMMAND | Out-Host
 		& $Global:EVENTS_REGROUP_LOADER
 		# $Global:EVENTS_REGROUP_COMMAND=$ExecutionContext.InvokeCommand.ExpandString($Global:EVENTS_REGROUP_LOADER -replace '\$Global:EVENTS','`$Global:EVENTS')
-	} else {
+	} else 
 		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr skipping regrouping$gry.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}) | Out-Host
 	}
 		

@@ -1572,6 +1572,199 @@ $null = New-ItemProperty -path HKCU:\Software\tq84 -name someValue -value 99
 # Find Variable Search Variable 
 Get-ChildItem -Path Variable: |? Name -like Test*
 
+##############################################################
+# All Types properties
+ PS C:\Users\alexe> ([ordered]@{}).PsObject.Properties | ft -a # ordered hashtable
+MemberType Value IsSettable IsGettable TypeNameOfValue                Name           IsInstance
+---------- ----- ---------- ---------- ---------------                ----           ----------
+  Property     0      False       True System.Int32                   Count                True
+  Property False      False       True System.Boolean                 IsReadOnly           True
+  Property    {}      False       True System.Collections.ICollection Keys                 True
+  Property    {}      False       True System.Collections.ICollection Values               True
+  Property False      False       True System.Boolean                 IsFixedSize          True
+  Property    {}      False       True System.Object                  SyncRoot             True
+  Property False      False       True System.Boolean                 IsSynchronized       True
+PS C:\Users\alexe> ([ordered]@{}).GetType() | select Name,BaseType
+Name              BaseType
+----              --------
+OrderedDictionary System.Object
+
+ PS C:\Users\alexe> (@{}).PsObject.Properties | ft -a # hashtable
+MemberType Value IsSettable IsGettable TypeNameOfValue                Name           IsInstance
+---------- ----- ---------- ---------- ---------------                ----           ----------
+  Property False      False       True System.Boolean                 IsReadOnly           True
+  Property False      False       True System.Boolean                 IsFixedSize          True
+  Property False      False       True System.Boolean                 IsSynchronized       True
+  Property    {}      False       True System.Collections.ICollection Keys                 True
+  Property    {}      False       True System.Collections.ICollection Values               True
+  Property    {}      False       True System.Object                  SyncRoot             True
+  Property     0      False       True System.Int32                   Count                True
+
+PS C:\Users\alexe> (@{}).GetType() | select Name,BaseType
+Name      BaseType
+----      --------
+Hashtable System.Object
+
+PS C:\Users\alexe> (@()).PsObject.Properties | ft -a # array
+MemberType Value IsSettable IsGettable TypeNameOfValue Name           IsInstance
+---------- ----- ---------- ---------- --------------- ----           ----------
+  Property     0      False       True System.Int32    Length               True
+  Property     0      False       True System.Int64    LongLength           True
+  Property     1      False       True System.Int32    Rank                 True
+  Property    {}      False       True System.Object   SyncRoot             True
+  Property False      False       True System.Boolean  IsReadOnly           True
+  Property  True      False       True System.Boolean  IsFixedSize          True
+  Property False      False       True System.Boolean  IsSynchronized       True
+  Property     0      False       True System.Int32    Count                True
+
+PS C:\Users\alexe> (@()).GetType() | select Name,BaseType
+Name     BaseType
+----     --------
+Object[] System.Array
+
+PS C:\Users\alexe> ([System.Collections.ArrayList]@()).PsObject.Properties | ft -a # ArrayList
+MemberType Value IsSettable IsGettable TypeNameOfValue Name           IsInstance
+---------- ----- ---------- ---------- --------------- ----           ----------
+  Property     0       True       True System.Int32    Capacity             True
+  Property     0      False       True System.Int32    Count                True
+  Property False      False       True System.Boolean  IsFixedSize          True
+  Property False      False       True System.Boolean  IsReadOnly           True
+  Property False      False       True System.Boolean  IsSynchronized       True
+  Property    {}      False       True System.Object   SyncRoot             True
+
+PS C:\Users\alexe> ([System.Collections.ArrayList]@()).GetType() | select Name,BaseType
+Name      BaseType
+----      --------
+ArrayList System.Object
+
+PS C:\Users\alexe> ([System.Collections.Generic.List[object]]@()).PsObject.Properties | ft -a # List
+MemberType Value IsSettable IsGettable TypeNameOfValue Name           IsInstance
+---------- ----- ---------- ---------- --------------- ----           ----------
+  Property     0       True       True System.Int32    Capacity             True
+  Property     0      False       True System.Int32    Count                True
+  Property False      False       True System.Boolean  IsReadOnly           True
+  Property False      False       True System.Boolean  IsFixedSize          True
+  Property    {}      False       True System.Object   SyncRoot             True
+  Property False      False       True System.Boolean  IsSynchronized       True
+
+PS C:\Users\alexe> ([System.Collections.Generic.List[object]]@()).GetType() | select Name,BaseType
+Name   BaseType
+----   --------
+List`1 System.Object
+
+
+PS C:\Users\alexe> 
+# $obj0=[PsCustomObject]@{};  ($obj0).PsObject.PsBase.PsBase.Properties ; $obj0.GetType() | select Name,BaseType
+([PsCustomObject]@{}).PsObject.PsBase.PsBase.Properties  | 
+ ft @{ E='MemberType'; W=15 }, @{ E='Value'; W=50;A='Left' }, @{ E='IsSettable'; W=14; A='Left'}, @{ E='IsGettable'; W=14; A='Left'}, @{ E='TypeNameOfValue'; W=100; A='Left' }, @{ E='Name'; W=20; A='Left' }, @{ E='IsInstance'; W=20; A='Left' }
+([PsCustomObject]@{}).GetType() | select Name,BaseType
+
+
+     MemberType Value                                              IsSettable     IsGettable     TypeNameOfValue                                                                                      Name                 IsInstance
+     ---------- -----                                              ----------     ----------     ---------------                                                                                      ----                 ----------
+       Property True                                               False          True           System.Boolean                                                                                       InheritMembers       True
+       Property {System.Object BaseObject {get;}, System.Manageme… False          True           System.Management.Automation.PSMemberInfoCollection`1[[System.Management.Automation.PSMemberInfo, S… Members              True
+       Property {System.Object BaseObject {get;}, System.Manageme… False          True           System.Management.Automation.PSMemberInfoCollection`1[[System.Management.Automation.PSPropertyInfo,… Properties           True
+       Property {get_BaseObject, get_Members, get_Properties, get… False          True           System.Management.Automation.PSMemberInfoCollection`1[[System.Management.Automation.PSMethodInfo, S… Methods              True
+       Property MemberSet                                          False          True           System.Management.Automation.PSMemberTypes                                                           MemberType           True
+       Property psobject {BaseObject, Members, Properties, Method… True           True           System.Object                                                                                        Value                True
+       Property System.Management.Automation.PSMemberSet           False          True           System.String                                                                                        TypeNameOfValue      True
+       Property psobject                                           False          True           System.String                                                                                        Name                 True
+       Property True
+
+
+PS C:\Users\alexe> ([PsCustomObject]@{}).GetType() | select Name,BaseType
+Name           BaseType
+----           --------
+PSCustomObject System.Object
+
+PS C:\Users\alexe> ([PsObject]@{}).PsObject.Properties | ft -a # Still Hashtable
+MemberType Value IsSettable IsGettable TypeNameOfValue                Name           IsInstance
+---------- ----- ---------- ---------- ---------------                ----           ----------
+  Property False      False       True System.Boolean                 IsReadOnly           True
+  Property False      False       True System.Boolean                 IsFixedSize          True
+  Property False      False       True System.Boolean                 IsSynchronized       True
+  Property    {}      False       True System.Collections.ICollection Keys                 True
+  Property    {}      False       True System.Collections.ICollection Values               True
+  Property    {}      False       True System.Object                  SyncRoot             True
+  Property     0      False       True System.Int32                   Count                True
+
+PS C:\Users\alexe> ([PsObject]@{}).GetType() | select Name,BaseType
+Name      BaseType
+----      --------
+Hashtable System.Object
+
+############################################################
+# test if an object has a specific property?
+[bool]($myObject.PSobject.Properties.name -match "myPropertyNameToTest")
+# OR 
+if(Get-Member -inputobject $var -name "Property" -Membertype Properties){ echo "Property exists" }
+# OR
+"MyProperty" -in $MyObject.PSobject.Properties.Name
+#
+### String
+'Length'    -in ([string]'').PsObject.Properties.Name                             # True
+'Count'     -in ([string]'').PsObject.Properties.Name                             # False
+'Capacity'  -in ([string]'').PsObject.Properties.Name                             # False
+'Keys'      -in ([string]'').PsObject.Properties.Name                             # False
+'Values'    -in ([string]'').PsObject.Properties.Name                             # False
+### Array
+'Count'     -in (@()).PsObject.Properties.Name                                    # True
+'Length'    -in (@()).PsObject.Properties.Name                                    # True
+'Capacity'  -in (@()).PsObject.Properties.Name                                    # False
+'Keys'      -in (@()).PsObject.Properties.Name                                    # False
+'Values'    -in (@()).PsObject.Properties.Name                                    # False
+### ArrayList  ([System.Collections.ArrayList]@())
+'Count'     -in ([System.Collections.ArrayList]@()).PsObject.Properties.Name      # True
+'Capacity'  -in ([System.Collections.ArrayList]@()).PsObject.Properties.Name      # True
+'Length'    -in ([System.Collections.ArrayList]@()).PsObject.Properties.Name      # False
+'Keys'      -in ([System.Collections.ArrayList]@()).PsObject.Properties.Name      # False
+'Values'    -in ([System.Collections.ArrayList]@()).PsObject.Properties.Name      # False
+### Hashtable
+'Count'     -in (@{}).PsObject.Properties.Name                                    # True
+'Keys'      -in (@{}).PsObject.Properties.Name                                    # True
+'Values'    -in (@{}).PsObject.Properties.Name                                    # True
+'Length'    -in (@{}).PsObject.Properties.Name                                    # False
+'Capacity'  -in (@{}).PsObject.Properties.Name                                    # False
+'Value'     -in (@{}).PsObject.PsBase.PsBase.Properties.Name                      # True
+'Name'      -in (@{}).PsObject.PsBase.PsBase.Properties.Name                      # True
+
+############################################################
+# $obj0=@{}; $obj0=[pscustomobject]@{}
+# $obj0.PsObject.PsBase.get_Properties() | ft -a -view:a
+
+$propcols=@( @{ E='MemberType'; W=15 }, @{ E='Value'; W=50;A='Left' }, @{ E='IsSettable'; W=14; A='Left'}, @{ E='IsGettable'; W=14; A='Left'}, @{ E='TypeNameOfValue'; W=100; A='Left' }, @{ E='Name'; W=20; A='Left' }, @{ E='IsInstance'; W=20; A='Left' } )
+
+
+
+
+    $res=( $_.Members.Name | sort); '[{0}] {1}' -f $res.Count,($res -join ', ') 
+    if ($o.PsObject.get_Properties) { $o.PsObject.get_Properties() }
+
+
+$obj0.PsObject.get_Properties() | ft @{ E='MemberType'; W=15 }, @{ E='Value'; W=50;A='Left' }, @{ E='IsSettable'; W=14; A='Left'}, @{ E='IsGettable'; W=14; A='Left'}, @{ E='TypeNameOfValue'; W=100; A='Left' }, @{ E='Name'; W=20; A='Left' }, @{ E='IsInstance'; W=20; A='Left' }
+
+
+
+$res=($obj0.PsObject.PsBase.Members.Name | sort) -Join(', ')
+Add, Clear, Clone, Contains, ContainsKey, ContainsValue, CopyTo, Count, Equals, get_Count, get_IsFixedSize, get_IsReadOnly, get_IsSynchronized, get_Item, get_Keys, get_SyncRoot, get_Values, GetEnumerator, GetHashCode, GetObjectData, GetType, IsFixedSize, IsReadOnly, IsSynchronized, Item, Keys, OnDeserialization, Remove, set_Item, SyncRoot, ToString, Values
+BaseObject, CompareTo, Copy, Equals, get_BaseObject, get_ImmediateBaseObject, get_Members, get_Methods, get_Properties, get_TypeNames, GetHashCode, GetMetaObject, GetObjectData, GetType, ImmediateBaseObject, Members, Methods, Properties, ToString, TypeNames
+
+
+### PsCustomObject
+'Value'     -in ([PsCustomObject]@{}).PsObject.PsBase.PsBase.Properties.Name      # True
+'Name'      -in ([PsCustomObject]@{}).PsObject.PsBase.PsBase.Properties.Name      # True
+'Name'      -in ([PsCustomObject]@{}).PsObject.Properties.Name                    # False
+([PsCustomObject]@{}).PsObject.PsBase.Members.Name
+
+
+##############################################################
+# test whether or not a specific variable exists in global scope?
+if (Get-Variable 'foo' -Scope 'Global' -ErrorAction 'Ignore') { $true } else { $false }
+# OR
+try { Get-Variable foo -Scope Global -ErrorAction 'Stop' } catch [System.Management.Automation.ItemNotFoundException] { Write-Warning $_ }
+# OR
+Test-Path variable:global:foo
 
 ##############################
 ##############################
@@ -1622,14 +1815,16 @@ $W
 ##################################
 # Pre-sized arrays
 # You can't change the size of an array once it's created. We can create an array of a pre-determined size by calling it with the new($size) constructor.
-$data = [Object[]]::new(4)
-$data.count
+$myarray = [Object[]]::new(4)
+$myarray.count
 # 4
+$myarray[1]="Test"
+$myarray[2]=@{test=1}
 
 # ArrayList
-$myarray = [System.Collections.ArrayList]::new()
-[void]$myArray.Add('Value')
-$myarray[-1]
+$myarraylist = [System.Collections.ArrayList]::new()
+[void]$myarraylist.Add('Value')
+$myarraylist[-1]
 # Value
 
 # Generic List
@@ -1826,13 +2021,184 @@ function ConvertHashtableTo-Object {
     }
 }
 
-########################
+##################################
 ##################################
 ######                     #######
 ######    Objects          #######
 ######                     #######
 ##################################
 ##################################
+
+PS C:\Users\alexe> $myobj2  | get-member -force
+
+   TypeName: System.Management.Automation.PSCustomObject
+
+Name                         MemberType   Definition
+----                         ----------   ----------
+pstypenames                  CodeProperty System.Collections.ObjectModel.Collection`1[[System.String, System.Private.CoreLib, Version=6.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] pstypenames{get=PSTypeNames;}
+psadapted                    MemberSet    psadapted {ToString, GetType, Equals, GetHashCode}
+psbase                       MemberSet    psbase {ToString, GetType, Equals, GetHashCode}
+psextended                   MemberSet    psextended {System.Collections.Hashtable}
+psobject                     MemberSet    psobject {BaseObject, Members, Properties, Methods, ImmediateBaseObject, TypeNames, get_BaseObject, get_Members, get_Properties, get_Methods, get_ImmediateBaseObject, get_TypeNames, ToString, Copy, Comp…
+Equals                       Method       bool Equals(System.Object obj)
+GetHashCode                  Method       int GetHashCode()
+GetType                      Method       type GetType()
+ToString                     Method       string ToString()
+System.Collections.Hashtable NoteProperty hashtable System.Collections.Hashtable=System.Collections.Hashtable
+
+
+
+PS C:\Users\alexe> $myobj2."System.Collections.Hashtable"
+
+Name                           Value
+----                           -----
+k1                             2
+k 2
+
+PS C:\Users\alexe> $myobj2.PsObject  | gm -force
+
+   TypeName: System.Management.Automation.PSMemberSet
+
+Name                    MemberType   Definition
+----                    ----------   ----------
+pstypenames             CodeProperty System.Collections.ObjectModel.Collection`1[[System.String, System.Private.CoreLib, Version=6.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]] pstypenames{get=PSTypeNames;}
+psadapted               MemberSet    psadapted {BaseObject, Members, Properties, Methods, ImmediateBaseObject, TypeNames, get_BaseObject, get_Members, get_Properties, get_Methods, get_ImmediateBaseObject, get_TypeNames, ToString, Copy, CompareT…
+psbase                  MemberSet    psbase {InheritMembers, Members, Properties, Methods, MemberType, Value, TypeNameOfValue, Name, IsInstance, get_InheritMembers, get_Members, get_Properties, get_Methods, get_MemberType, get_Value, set_Value,…
+psextended              MemberSet    psextended {}
+psobject                MemberSet    psobject {BaseObject, Members, Properties, Methods, ImmediateBaseObject, TypeNames, get_BaseObject, get_Members, get_Properties, get_Methods, get_ImmediateBaseObject, get_TypeNames, ToString, Copy, CompareTo…
+CompareTo               Method       int CompareTo(System.Object obj), int IComparable.CompareTo(System.Object obj)
+Copy                    Method       psobject Copy()
+Equals                  Method       bool Equals(System.Object obj)
+GetHashCode             Method       int GetHashCode()
+GetMetaObject           Method       System.Dynamic.DynamicMetaObject IDynamicMetaObjectProvider.GetMetaObject(System.Linq.Expressions.Expression parameter)
+GetObjectData           Method       void GetObjectData(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context), void ISerializable.GetObjectData(System.Runtime.Serialization.SerializationInfo…
+GetType                 Method       type GetType()
+get_BaseObject          Method       System.Object get_BaseObject()
+get_ImmediateBaseObject Method       System.Object get_ImmediateBaseObject()
+get_Members             Method       System.Management.Automation.PSMemberInfoCollection[System.Management.Automation.PSMemberInfo] get_Members()
+get_Methods             Method       System.Management.Automation.PSMemberInfoCollection[System.Management.Automation.PSMethodInfo] get_Methods()
+get_Properties          Method       System.Management.Automation.PSMemberInfoCollection[System.Management.Automation.PSPropertyInfo] get_Properties()
+get_TypeNames           Method       System.Collections.ObjectModel.Collection[string] get_TypeNames()
+ToString                Method       string ToString(), string ToString(string format, System.IFormatProvider formatProvider), string IFormattable.ToString(string format, System.IFormatProvider formatProvider)
+BaseObject              Property     System.Object BaseObject {get;}
+ImmediateBaseObject     Property     System.Object ImmediateBaseObject {get;}
+Members                 Property     System.Management.Automation.PSMemberInfoCollection[System.Management.Automation.PSMemberInfo] Members {get;}
+Methods                 Property     System.Management.Automation.PSMemberInfoCollection[System.Management.Automation.PSMethodInfo] Methods {get;}
+Properties              Property     System.Management.Automation.PSMemberInfoCollection[System.Management.Automation.PSPropertyInfo] Properties {get;}
+TypeNames               Property     System.Collections.ObjectModel.Collection[string] TypeNames {get;}
+
+PS C:\Users\alexe> $myobj2.PsObject.get_Properties().GetEnumerator()
+
+Value           : {k1, k 2}
+MemberType      : NoteProperty
+IsSettable      : True
+IsGettable      : True
+TypeNameOfValue : System.Collections.Hashtable
+Name            : System.Collections.Hashtable
+IsInstance      : True
+
+
+PS C:\Users\alexe> $myobj2.PsObject.get_Properties().GetEnumerator().Name
+System.Collections.Hashtable
+
+PS C:\Users\alexe> $myobj2.PsObject
+
+BaseObject          :
+Members             : {hashtable System.Collections.Hashtable=System.Collections.Hashtable, ToString, GetType, Equals…}
+Properties          : {hashtable System.Collections.Hashtable=System.Collections.Hashtable}
+Methods             : {ToString, GetType, Equals, GetHashCode}
+ImmediateBaseObject :
+TypeNames           : {System.Management.Automation.PSCustomObject, System.Object}
+
+PS C:\Users\alexe> $myobj2.PsBase
+psbase {ToString, GetType, Equals, GetHashCode}
+
+PS C:\Users\alexe> $myobj2.psExtended
+
+System.Collections.Hashtable
+----------------------------
+{k1, k 2}
+
+PS C:\Users\alexe> $myobj2.psAdapted
+psadapted {ToString, GetType, Equals, GetHashCode}
+
+PS C:\Users\alexe> $myobj2.psTypeNames
+System.Management.Automation.PSCustomObject
+System.Objec
+
+
+
+########################################
+# Use PowerShell to Work with the .NET Framework Classes
+# https://devblogs.microsoft.com/scripting/use-powershell-to-work-with-the-net-framework-classes/
+ 
+$sc="System.Management.Automation.PSCustomObject" -as [type]
+
+PS C:\Users\alexe> [reflection.assembly]::GetAssembly($sc) | Format-List *
+
+CodeBase            : file:///C:/Program Files/PowerShell/7/System.Management.Automation.dll
+FullName            : System.Management.Automation, Version=7.2.3.500, Culture=neutral, PublicKeyToken=31bf3856ad364e35
+EntryPoint          :
+DefinedTypes        : {<>f__AnonymousType0`2[<cacheEntry>j__TPar,<splittedName>j__TPar], <>f__AnonymousType1`2[<<>h__TransparentIdentifier0>j__TPar,<cachedClassName>j__TPar],
+                      <>f__AnonymousType2`2[<<>h__TransparentIdentifier1>j__TPar,<cachedModuleName>j__TPar], <>f__AnonymousType3`2[<<>h__TransparentIdentifier2>j__TPar,<cachedResourceName>j__TPar]…}
+IsCollectible       : False
+ManifestModule      : System.Management.Automation.dll
+ReflectionOnly      : False
+Location            : C:\Program Files\PowerShell\7\System.Management.Automation.dll
+ImageRuntimeVersion : v4.0.30319
+GlobalAssemblyCache : False
+HostContext         : 0
+IsDynamic           : False
+ExportedTypes       : {Microsoft.PowerShell.ToStringCodeMethods, Microsoft.PowerShell.AdapterCodeMethods, Microsoft.PowerShell.ProcessCodeMethods, Microsoft.PowerShell.DeserializingTypeConverter…}
+IsFullyTrusted      : True
+CustomAttributes    : {[System.Runtime.CompilerServices.ExtensionAttribute()], [System.Runtime.CompilerServices.CompilationRelaxationsAttribute((Int32)8)], [System.Runtime.CompilerServices.RuntimeCompatibilityAttribute(WrapNonExceptionThrows =
+                      True)], [System.Diagnostics.DebuggableAttribute((System.Diagnostics.DebuggableAttribute+DebuggingModes)2)]…}
+EscapedCodeBase     : file:///C:/Program%20Files/PowerShell/7/System.Management.Automation.dll
+Modules             : {System.Management.Automation.dll}
+SecurityRuleSet     : None
+
+PS C:\Users\alexe> Add-Type -AssemblyName  System.Management.Automation.PSCustomObject
+Add-Type: Cannot find path 'C:\Users\alexe\System.Management.Automation.PSCustomObject.dll' because it does not exist.
+
+PS C:\Users\alexe> [system.reflection.assembly]::LoadwithPartialName("System.Management")
+GAC    Version        Location
+---    -------        --------
+False  v4.0.30319     C:\Program Files\PowerShell\7\System.Management.dll
+Add-Type -AssemblyName System.Management.Automation
+
+ $sc2="System.Management.Automation" -as [type]
+
+ PS C:\Users\alexe> [componentmodel.typedescriptor]::GetProperties($myobj2)
+
+Attributes              : {}
+IsReadOnly              : False
+ComponentType           : System.Management.Automation.PSObject
+PropertyType            : System.Object
+Converter               : System.ComponentModel.TypeConverter
+IsLocalizable           : False
+SerializationVisibility : Visible
+SupportsChangeEvents    : False
+Category                : Misc
+Description             :
+IsBrowsable             : True
+Name                    : System.Collections.Hashtable
+DesignTimeOnly          : False
+DisplayName             : System.Collections.Hashtable
+
+[System.Management.Automation.PSObject]::AsPSObject($myobj2)
+System.Collections.Hashtable
+----------------------------
+{k1, k 2}
+
+
+PS C:\Users\alexe> [System.Management.Automation.PSObjectTypeDescriptor]::new($myobj2).GetConverter()
+System.ComponentModel.TypeConverter
+
+PS C:\Users\alexe> [System.Management.Automation.PSObjectTypeDescriptor]::new($myobj2).Instance
+
+System.Collections.Hashtable
+----------------------------
+{k1, k 2}
 
 
 ##############################################
