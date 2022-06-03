@@ -1,59 +1,4 @@
-##################################################
-#  $Global:Users
-$myscript=$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf)
-
-if (!$Global:Users) { $Global:Users=Get-LocalUser }
-
-##################################################
-# $Global:EVENTS_OUT_COLS
-$Global:EVENTS_OUT_COLS=@( "MsgNo",
-	@{n='Day'      ;e={$_.TimeCreated.ToString('MM/dd')}},
-	'ProcessId', 
-	@{n='Time'     ;e={$_.TimeCreated.ToString('HH:mm:ss.fff')}}
-	'RecordId',
-	@{n='Lvl'      ;e={'{0}({1})' -f $(Switch ($_.Level) { 0 {"ALW"}; 1 {"CRT"}; 2 {"ERR"}; 3 {"WRN"}; 4 {"INF"}; 5 {"VRB"}; default {"OTH"}}),$_.Level }},
-	@{n='Log'      ;e={$_.LogName -replace '/.*$','' -replace '(Microsoft-Windows-|Microsoft-Client-|-Admin)','' }},
-	@{n='LogType'  ;e={$( $(switch -wildcard ($_.LogName){ 'Microsoft-Windows-*' {'MS-Win'}; 'Microsoft-Client-*' {'MS-Client'};} ),
-		$(if($_.LogName -like '*-Admin'){'Admin'}), $(if($_.LogName -like '*/*'){$_.LogName -replace '^.*/','' -replace 'Operational','Oper'}) -ne '' ) -join(',')}},
-	@{n='Provider';e={$_.ProviderName -replace $($_.LogName -replace '/.*$','' -replace 'Known Folders.*','KnownFolders' -replace 'PushNotification','PushNotifications' `
-		-replace 'AppXDeploymentServer','AppXDeployment-Server' -replace 'Storage-Storport','StorPort' -replace '(-Events|-Admin)','' ),"*" -replace '(Microsoft-Windows-|Windows-)',''}},
-	@{n='User'     ;e={$Sid=$_.UserId; '{0}' -f $(Switch ($Sid) { 'S-1-5-18' {"LocalSystem"}; 'S-1-5-20' {"NT Authority"}; default {  $($Global:Users |? Sid -like $Sid).Name }; }) }},
-	@{n='OpCode'   ;e={if ($_.Opcode) {'{0}({1})' -f $_.OpcodeDisplayName,$_.Opcode} }},
-	@{n='Task'     ;e={if ($_.Task) {'{0}({1})' -f $_.TaskDisplayName,$_.Task} }},
-	'ThreadId',		
-	@{n='KeyWords' ;e={$_.KeywordsDisplayNames -replace('(?<=.{40}).+','..')}},
-	@{n='Message';e={($_.Message,$(($_.Properties | select -first 3 *).Value -join '; ') -join '; ') -replace "^This is the first instance.*$",'' -replace "[`n`r]+",' ' -replace '\s+',' ' -replace '(?<=.{260}).+','...' }},
-	'Id','TimeCreated'
-)
-$Global:EVENTS_EXCL_OUT_COLS=@("Message","Properties","Bookmark","ContainerLog","RelatedActivityId","MatchedQueryIds","ProviderId",'TimeCreated')
-
-$Global:EVENT_GROUPS_COLS=(
-	@{n='Grp'        ;e={($script:Grp++)}},
-	@{n='LstMsg'     ;e={$_.Group[0].MsgNo}},
-	@{n='Cnt'        ;e={$_.Count}}, 
-	@{n='Days'       ;e={($_.Group.TimeCreated | Group-Object Day).Length}},
-	@{n='LogName'    ;e={$_.Values[0]}},
-	@{n='LogType'    ;e={$_.Values[1]}},
-	@{n='Lvl'        ;e={$_.Values[2]}},
-	@{n='Id'         ;e={$_.Values[3]}},
-	@{n='Prvd'       ;e={$_.Values[4]}},
-	@{n='User'       ;e={$_.Values[5]}},
-	@{n='FstTime'    ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}}},
-	@{n='LstTime'    ;e={$_.Group[0].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}},	
-	@{n='FstRecId'   ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].RecordId}}},
-	@{n='LstRecId'   ;e={$_.Group[0].RecordId}},
-	@{n='LstPid'     ;e={$_.Group[0].ProcessId}},
-	@{n='CntPid'     ;e={($_.Group | Group-Object ProcessID).Length}},
-	@{n='Lst3Pids'   ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count -Top 3 | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},					
-	@{n='ListOfPids' ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},
-	@{n='LstMessage' ;e={$_.Group[0].Message}},
-	"Group"
-)
-
-$Global:EVENT_GROUPS_OUT_COLS=('Grp','LstMsg','Cnt','Days','LogName','LogType','Lvl','Id','Prvd','User','FstTime','LstTime','FstRecId','LstRecId','LstPid','CntPid','Lst3Pids','ListOfPids','LstMessage','Group' )
-$Global:EVENT_GROUPS_EXCL_COLS=("Providers","Group","Values","Msg","ListOfPids","FstRecId","LstPid")
-
-# Error: Log count (463) is exceeded Windows Event Log API limit (256). Adjust filter to return less log names.
+###########
 # Examples:  
 #            Win-Event.ps1                                 # last 50000 error events, see output in C:\home\data\Reports\Get-Events-2022-05-18.txt
 #            Win-Event.ps1 Get-MyWinEvents                 # last 50000 error events, see output in C:\home\data\Reports\Get-Events-2022-05-18.txt
@@ -121,23 +66,74 @@ $Global:EVENT_GROUPS_EXCL_COLS=("Providers","Group","Values","Msg","ListOfPids",
 #       $E=(Get-WinEvent -FilterHash @{LogName='*'; Level=1,2} -Max 1); Get-WinEvent $E.LogName -FilterXPath "*[System[EventRecordID=$($E.RecordID)]]" | ConvertTo-JSON
 
 
+##################################################
+#  $Global:Users
+$myscript=$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf)
+if (!$Global:Users) { $Global:Users=Get-LocalUser }
+
+##################################################
+# $Global:EVENTS_OUT_COLS
+$Global:EVENTS_OUT_COLS=@( "MsgNo",
+	@{n='Day'      ;e={$_.TimeCreated.ToString('MM/dd')}},
+	'ProcessId', 
+	@{n='Time'     ;e={$_.TimeCreated.ToString('HH:mm:ss.fff')}}
+	'RecordId',
+	@{n='Lvl'      ;e={'{0}({1})' -f $(Switch ($_.Level) { 0 {"ALW"}; 1 {"CRT"}; 2 {"ERR"}; 3 {"WRN"}; 4 {"INF"}; 5 {"VRB"}; default {"OTH"}}),$_.Level }},
+	@{n='Log'      ;e={$_.LogName -replace '/.*$','' -replace '(Microsoft-Windows-|Microsoft-Client-|-Admin)','' }},
+	@{n='LogType'  ;e={$( $(switch -wildcard ($_.LogName){ 'Microsoft-Windows-*' {'MS-Win'}; 'Microsoft-Client-*' {'MS-Client'};} ),
+		$(if($_.LogName -like '*-Admin'){'Admin'}), $(if($_.LogName -like '*/*'){$_.LogName -replace '^.*/','' -replace 'Operational','Oper'}) -ne '' ) -join(',')}},
+	@{n='Provider';e={$_.ProviderName -replace $($_.LogName -replace '/.*$','' -replace 'Known Folders.*','KnownFolders' -replace 'PushNotification','PushNotifications' `
+		-replace 'AppXDeploymentServer','AppXDeployment-Server' -replace 'Storage-Storport','StorPort' -replace '(-Events|-Admin)','' ),"*" -replace '(Microsoft-Windows-|Windows-)',''}},
+	@{n='User'     ;e={$Sid=$_.UserId; '{0}' -f $(Switch ($Sid) { 'S-1-5-18' {"LocalSystem"}; 'S-1-5-20' {"NT Authority"}; default {  $($Global:Users |? Sid -like $Sid).Name }; }) }},
+	@{n='OpCode'   ;e={if ($_.Opcode) {'{0}({1})' -f $_.OpcodeDisplayName,$_.Opcode} }},
+	@{n='Task'     ;e={if ($_.Task) {'{0}({1})' -f $_.TaskDisplayName,$_.Task} }},
+	'ThreadId',		
+	@{n='KeyWords' ;e={$_.KeywordsDisplayNames -replace('(?<=.{40}).+','..')}},
+	@{n='Message';e={($_.Message,$(($_.Properties | select -first 3 *).Value -join '; ') -join '; ') -replace "^This is the first instance.*$",'' -replace "[`n`r]+",' ' -replace '\s+',' ' -replace '(?<=.{260}).+','...' }},
+	'Id','TimeCreated'
+)
+$Global:EVENTS_EXCL_OUT_COLS=@("Message","Properties","Bookmark","ContainerLog","RelatedActivityId","MatchedQueryIds","ProviderId",'TimeCreated')
+
+$Global:EVENT_GROUPS_COLS=(
+	@{n='Grp'        ;e={($script:Grp++)}},
+	@{n='LstMsg'     ;e={$_.Group[0].MsgNo}},
+	@{n='Cnt'        ;e={$_.Count}}, 
+	@{n='Days'       ;e={($_.Group.TimeCreated | Group-Object Day).Length}},
+	@{n='LogName'    ;e={$_.Values[0]}},
+	@{n='LogType'    ;e={$_.Values[1]}},
+	@{n='Lvl'        ;e={$_.Values[2]}},
+	@{n='Id'         ;e={$_.Values[3]}},
+	@{n='Prvd'       ;e={$_.Values[4]}},
+	@{n='User'       ;e={$_.Values[5]}},
+	@{n='FstTime'    ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}}},
+	@{n='LstTime'    ;e={$_.Group[0].TimeCreated.ToString('MM/dd HH:mm:ss.fff')}},	
+	@{n='FstRecId'   ;e={if($_.Count -gt 1){$_.Group[$_.Count-1].RecordId}}},
+	@{n='LstRecId'   ;e={$_.Group[0].RecordId}},
+	@{n='LstPid'     ;e={$_.Group[0].ProcessId}},
+	@{n='CntPid'     ;e={($_.Group | Group-Object ProcessID).Length}},
+	@{n='Lst3Pids'   ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count -Top 3 | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},					
+	@{n='ListOfPids' ;e={($_.Group | Group-Object ProcessID| Sort-Object -Descending Count | select @{n='List';e={'{0}({1})' -f $_.Name,$_.Count}}).List -join (',')}},
+	@{n='LstMessage' ;e={$_.Group[0].Message}},
+	"Group"
+)
+
+$Global:EVENT_GROUPS_OUT_COLS=('Grp','LstMsg','Cnt','Days','LogName','LogType','Lvl','Id','Prvd','User','FstTime','LstTime','FstRecId','LstRecId','LstPid','CntPid','Lst3Pids','ListOfPids','LstMessage','Group' )
+$Global:EVENT_GROUPS_EXCL_COLS=("Providers","Group","Values","Msg","ListOfPids","FstRecId","LstPid")
+
 function fnc-start() {
-	
 	if (!$global:myscript) { $global:myscript=Split-Path $MyInvocation.ScriptName -leaf }
 	if (!$global:mywatch) { $global:mywatch=[System.Diagnostics.Stopwatch]::New() }
-    
-	$fmt="$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. "+
-	"Called from line $cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" 
-	
+	$fmt="$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms. Called from line $cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" 	
 	$fmt -f $MyInvocation.MyCommand, $global:myscript, $MyInvocation.ScriptLineNumber,
-		$global:mywatch.Elapsed.milliseconds, $global:mywatch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $(Get-Date), 
+		$global:mywatch.Elapsed.TotalMilliseconds, $MyInvocation.ScriptLineNumber, $(Get-Date), 
 		'$PsBoundParameters', $(@($PsBoundParameters.Keys).Count), 
 		$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
 }
 
 function fnc-stop() {
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry. $rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
-	$script:watch.Elapsed.milliseconds, $script:watch.Elapsed.ticks,$MyInvocation.ScriptLineNumber, $start_tm, 
+	$fmt="$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms. Called from ${ylw}line${blu}:$cyn{5}$gry at $ylw{6}$gry | $ylw{7}$blu[$ylw{8}$blu]${gry}: $ylw{9}$gry.$rc" 
+	$fmt -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}),
+	$script:watch.Elapsed.TotalMilliseconds,$MyInvocation.ScriptLineNumber, $start_tm, 
 	'$PsBoundParameters',$(@($PsBoundParameters.Keys).Count),$( if($(@($PsBoundParameters.Keys).Count)){ '@{ '+$(($PsBoundParameters.GetEnumerator() | % { "$($_.Key)='$($_.Value)'" } ) -join('; '))+ '} '})
 }
 
@@ -729,8 +725,7 @@ function Get-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data
 	}
 #>
 
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks  | Out-Host
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), $stopwatch.Elapsed.TotalMilliseconds  | Out-Host
 	
 	$start_tm = Get-Date
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on ${ylw}{3}${blu}:$cyn{4}$gry at $ylw{5}$gry | $ylw{6}$blu[$ylw{7}$blu]${gry}: $ylw{8}$gry. $rc" -f $MyInvocation.MyCommand.Name, 
@@ -752,19 +747,17 @@ function Get-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data
 	Get-WinEvents @PsBoundParameters
 	Print-MyWinEvents @PsBoundParameters
 
-
 	$duration=[int]($(Get-Date)-$start_tm).TotalMilliseconds
 	if ($duration -gt 9000) {
-		$duration="$att_clr$duration"
+		$duration="$red$duration"
 	} elseif ($duration -gt 1000) {
 		$duration="$ylw$duration"
 	}
 
-	"$sc$ylw[$cyn{0}$gry() ${ylw}{1}${blu}:$cyn{2}$ylw] $grn{3}${gry} ms, $cyn DONE at $ylw{4} $grn{5}$ylw[$att_clr{6}$ylw]$gry, $grn{7}$ylw[$att_clr{8}$ylw]$gry.$rc" -f  $MyInvocation.MyCommand, 
+	"$sc$ylw[$cyn{0}$gry() ${ylw}{1}${blu}:$cyn{2}$ylw] $grn{3}${gry} ms,$cyn DONE at $ylw{4} $grn{5}$ylw[$red{6}$ylw]$gry, $grn{7}$ylw[$att_clr{8}$ylw]$gry.$rc" -f  $MyInvocation.MyCommand, 
 	   $myscript, $(&{$MyInvocation.ScriptLineNumber}), $duration, $(Get-Date),
 	   '$Global:EVENTS', $Global:EVENTS_COUNT, '$Global:EVENTS_OUT', $Global:EVENTS_OUT_COUNT |  Out-Host
-	 "$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	 "$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), $stopwatch.Elapsed.TotalMilliseconds
 }
 
 #########################################
@@ -775,8 +768,7 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 	$Pids, $Msgs, $RecIds, $ExclLogs, $ExclProviders, $ExclPids, $ExclRecIds, $ExclMsgs,
 	$MaxEvents=50000,
 	[switch]$xml,[switch]$UseCache,[switch]$UpdateCache) {
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $stopwatch.Elapsed.TotalMilliseconds
 	$start_tm = Get-Date
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on ${ylw}{3}${blu}:$cyn{4}$gry at $ylw{5}$gry | $ylw{6}$blu[$ylw{7}$blu]${gry}: $ylw{8}$gry. $rc" -f $MyInvocation.MyCommand, 
 	    $myscript, $(& {$MyInvocation.ScriptLineNumber}),
@@ -832,14 +824,13 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 			$( if( $ExclProviders ) { @( '$_.ProviderName -notmatch "{0}"' -f $($ExclProviders -join('|')) ) } else { @() } ) +
 			$( if( $ExclMsgs      ) { @( '$_.Message -notmatch "{0}"'      -f $($ExclMsgs      -join('|')) ) } else { @() } ) ;
 		if(!$CondArr) { $CondArr=@('1 -eq 1') }
-		$Global:EVENTS_WHERE=$([ScriptBlock]::Create( $($CondArr -join(' -and '))))
-		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry[$grn{3}$gry] $ylw{4}$gry.$rc" -f  @(Get-PSCallStack)[1].InvocationInfo.MyCommand.Name, 
-		   $myscript, $MyInvocation.ScriptLineNumber,"`$Global:EVENTS_WHERE$blu[$ylw$($CondArr.Count)$blu]", $Global:EVENTS_WHERE.ToString() | Out-Host
+		$Global:EVENTS_WHERE=[ScriptBlock]::Create( $CondArr -join(' -and ') )
+		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry $grn{3}${gry}: $ylw{4}$gry $grn{5}$blu[$ylw$({6})$blu]${gry}: $ylw{7}$gry.$rc" -f  (@(Get-PSCallStack)[1].InvocationInfo.MyCommand.Name), $myscript, $MyInvocation.ScriptLineNumber,
+		   '$Global:EVENTS_WHERE', $Global:EVENTS_WHERE.ToString(), '$CondArr', $CondArr.Count, ($CondArr -join(' -and '))		| Out-Host
     }
 
 	$Global:EVENTS_LOADER={ $Global:MsgNo=1; $Global:EVENTS=Get-WinEvent @Global:EVENTS_PARAM | Select @{n='MsgNo';e={($Global:MsgNo++)}},*| Where-Object $Global:EVENTS_WHERE; $Global:EVENTS_COUNT=$Global:EVENTS.Count}
 	
-		
 	$PREV_EVENTS_WHERE=$Global:EVENTS_WHERE
 	$PREV_EVENTS_PARAM=$Global:EVENTS_PARAM
 
@@ -865,8 +856,8 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 		'$UseCache                 : {0}' -f $UseCacheUseCache
 		'$PREV_EVENTS_WHERE        : {0}' -f $PREV_EVENTS_WHERE
 		'$PREV_EVENTS_PARAM        : {0}' -f $PREV_EVENTS_PARAM
-		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry calling$att_clr {3}$gry {4}.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}),
-			'$Global:EVENTS_LOADER',$Global:EVENTS_LOADER | Out-Host
+		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry calling$red {3}${gry}: {4}$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}),
+			'$Global:EVENTS_LOADER', $Global:EVENTS_LOADER | Out-Host
 		$do_load=$true
 	}
 	
@@ -890,8 +881,7 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 	"$sc$ylw[$cyn{0}$gry() ${ylw}{1}${blu}:$cyn{2}$ylw] $grn{3}${gry} ms,$cyn DONE at $ylw{4} $grn{5}$ylw[$att_clr{6}$ylw]$gry.$rc" -f  $MyInvocation.MyCommand, 
 	   $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $duration, $(Get-Date),
 	   '$Global:EVENTS', $Global:EVENTS_COUNT |  Out-Host
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $stopwatch.Elapsed.TotalMilliseconds
 }
 
 #########################################
@@ -904,8 +894,7 @@ function Print-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Da
 	 $ExclCols=@("Message","RelatedActivityId","MatchedQueryIds","ContainerLog","ActivityId","Bookmark","MachineName","Properties","Version","Qualifiers","Keywords","ProviderId"),
     [switch]$List, [switch]$Table, [switch]$Raw, [switch]$UseCache,[switch]$UpdateCache
 	) {
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $myscript, $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $myscript, $(& {$MyInvocation.ScriptLineNumber}), $stopwatch.Elapsed.TotalMilliseconds
 	$start_tm = Get-Date
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on ${ylw}{3}${blu}:$cyn{4}$gry at $ylw{5}$gry | $ylw{6}$blu[$ylw{7}$blu]${gry}: $ylw{8}$gry. $rc" -f $MyInvocation.MyCommand, 
 	    $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}),
@@ -945,14 +934,13 @@ function Print-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Da
 	$PRV_PARAM=$Global:EVENTS_SELECT_PARAM
 	$PRV_PARAM_STR=ConvertTo-Json $Global:EVENTS_SELECT_PARAM -compress
 	
-	$PRV_WHERE=$Global:EVENTS_OUT_WHERE.ToString()
-	# $PRV_WHERE={echo 1}
-	
+	if ($EVENTS_OUT_WHERE) { $PRV_WHERE=$Global:EVENTS_OUT_WHERE.ToString() } else { $PRV_WHERE='' }
+
 	& $Global:EVENTS_WHERE_CMD
 	& $Global:EVENTS_SELECT_PARAM_CMD	
 	if (!$Global:EVENTS_SELECT_PARAM) {$Global:EVENTS_SELECT_PARAM=@{First=1}}
 	
-	$NEW_PARAM=$Global:EVENTS_SELECT_PARAM
+	# $NEW_PARAM=$Global:EVENTS_SELECT_PARAM
 	$NEW_PARAM_STR=ConvertTo-Json $Global:EVENTS_SELECT_PARAM -compress
 	
 	$NEW_WHERE=$Global:EVENTS_OUT_WHERE.ToString()
@@ -1038,8 +1026,7 @@ function Print-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Da
 	"$sc$ylw[$cyn{0}$gry() ${ylw}{1}${blu}:$cyn{2}$ylw] $grn{3}${gry} ms,$cyn DONE at $ylw{4} $grn{5}$ylw[$att_clr{6}$ylw]$gry.$rc" -f  $MyInvocation.MyCommand, 
 	   $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $duration, $(Get-Date),
 	   '$Global:EVENTS_OUT', $Global:EVENTS_OUT_COUNT |  Out-Host
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $stopwatch.Elapsed.TotalMilliseconds
 }
 
 
@@ -1588,20 +1575,7 @@ pargs
 
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew() # TBD: replace it in MyWinEvents implementation with pargs
 
-<#
-$stopwatch.Restart()
-"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
-#>
-
 CodeExecutor @args
-
-<#
-"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Elapsed: $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
-$stopwatch.Stop()
-#>
-
 
 
 <# 

@@ -54,6 +54,7 @@ $Global:EVENT_GROUPS_OUT_COLS=('Grp','LstMsg','Cnt','Days','LogName','LogType','
 $Global:EVENT_GROUPS_EXCL_COLS=("Providers","Group","Values","Msg","ListOfPids","FstRecId","LstPid")
 
 # $DebugPreference=0; $tHt=$ComplexHT; $tHt | Get-String ; '{0}' -f ($tHt|ConvertTo-Json -compress -depth 5)
+
 function Get-String( [Parameter(ValueFromPipeLine = $True)] $InputObject, $Depth=10, $MaxCount=500, $Iteration) {
 	if (!$Iteration) { $Iteration=0; $Global:TotalElements=0 }
 	$Iteration++; $Global:TotalElements++
@@ -325,150 +326,67 @@ function DbgInfo-Func( [string] $Text, $Vals,[string[]] $Vars,[switch] $noclr) {
 # Remove-Alias pargs -ErrorAction "SilentlyContinue"
 New-Alias -Name pargs -Value 'DbgInfo-Func' -ErrorAction "SilentlyContinue"
 
-###############################################
-# ConvertTo-Expression
-function ConvertTo-Expression {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Scope = 'Function')] # https://github.com/PowerShell/PSScriptAnalyzer/issues/1472
-    [CmdletBinding()][OutputType([scriptblock])] param(
-        [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')] $Object,
-        [int]$Depth = 9,
-        [int]$Expand = $Depth,
-        [int]$Indentation = 4,
-        [string]$IndentChar = ' ',
-        [string]$Delimiter = ';',
-        [string]$Assign=' = ',
-        [switch]$Strong,
-        [switch]$Explore,
-        [ValidateSet("Name", "Fullname", "Auto")][string]$TypeNaming = 'Auto',
-        [string]$NewLine = [System.Environment]::NewLine,
-        [switch]$niceprint
-    )
-    begin {
-        if(!$niceprint) { 
-            if (!$PSBoundParameters.ContainsKey('NewLine'))     { $NewLine=' '   }
-            if (!$PSBoundParameters.ContainsKey('Indentation')) { $Indentation=0 }
-            if (!$PSBoundParameters.ContainsKey('Assign'))      { $Assign='='    }
-        }
-        $ValidUnqoutedKey = '^[\p{L}\p{Lt}\p{Lm}\p{Lo}_][\p{L}\p{Lt}\p{Lm}\p{Lo}\p{Nd}_]*$'
-        $ListItem = $Null
-        $Tab = $IndentChar * $Indentation
-        function Serialize ($Object, $Iteration, $Indent) {
-            function Quote ([string]$Item) { "'$($Item.Replace('''', ''''''))'" }
-            function QuoteKey ([string]$Key) { if ($Key -cmatch $ValidUnqoutedKey) { $Key } else { Quote $Key } }
-            function Here ([string]$Item) { if ($Item -match '[\r\n]') { "@'$NewLine$Item$NewLine'@$NewLine" } else { Quote $Item } }
-            function Stringify ($Object, $Cast = $Type, $Convert) {
-                $Casted = $PSBoundParameters.ContainsKey('Cast')
-                function GetTypeName($Type) {
-                    if ($Type -is [Type]) {
-                        if ($TypeNaming -eq 'Fullname') { $Typename = $Type.Fullname }
-                        elseif ($TypeNaming -eq 'Name') { $Typename = $Type.Name }
-                        else {
-                            $Typename = "$Type"
-                             if ($Type.Namespace -eq 'System' -or $Type.Namespace -eq 'System.Management.Automation') {
-                                if ($Typename.Contains('.')) { $Typename = $Type.Name }
-                            }
-                        }
-                        if ($Type.GetType().GenericTypeArguments) {
-                            $TypeArgument = ForEach ($TypeArgument in $Type.GetType().GenericTypeArguments) { GetTypeName $TypeArgument }
-                            $Arguments = if ($Expand -ge 0) { $TypeArgument -join ', ' } else { $TypeArgument -join ',' }
-                            $Typename = $Typename.GetType().Split(0x60)[0] + '[' + $Arguments + ']'
-                        }
-                        $Typename
-                    } else { $Type }
-                }
-                function Prefix ($Object, [switch]$Parenthesis) {
-                    if ($Convert) { if ($ListItem) { $Object = "($Convert $Object)" } else { $Object = "$Convert $Object" } }
-                    if ($Parenthesis) { $Object = "($Object)" }
-                    if ($Explore) { if ($Strong) { "[$(GetTypeName $Type)]$Object" } else { $Object } }
-                    elseif ($Strong -or $Casted) { if ($Cast) { "[$(GetTypeName $Cast)]$Object" } }
-                    else { $Object }
-                }
-                function Iterate ($Object, [switch]$Strong = $Strong, [switch]$ListItem, [switch]$Level) {
-                    if ($Iteration -lt $Depth) { Serialize $Object -Iteration ($Iteration + 1) -Indent ($Indent + 1 - [int][bool]$Level) } else { "'...'" }
-                }
-                if ($Object -is [string]) { Prefix $Object } else {
-                    $List, $Properties = $Null; $Methods = $Object.PSObject.Methods
-                    if ($Methods['GetEnumerator'] -is [System.Management.Automation.PsMethod]) {
-                        if ($Methods['get_Keys'] -is [System.Management.Automation.PsMethod] -and $Methods['get_Values'] -is [System.Management.Automation.PsMethod]) {
-                            $List = [Ordered]@{}; foreach ($Key in $Object.get_Keys()) { $List[(QuoteKey $Key)] = Iterate $Object[$Key] }
-                        } else {
-                            $Level = @($Object).Count -eq 1 -or ($Null -eq $Indent -and !$Explore -and !$Strong)
-                            $StrongItem = $Strong -and $Type.Name -eq 'Object[]'
-                            $List = @(foreach ($Item in $Object) {
-                                    Iterate $Item -ListItem -Level:$Level -Strong:$StrongItem
-                                })
-                        }
-                    } else {
-                        $Properties = $Object.PSObject.Properties | Where-Object { $_.MemberType -eq 'Property' }
-                        if (!$Properties) { $Properties = $Object.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' } }
-                        if ($Properties) { $List = [Ordered]@{}; foreach ($Property in $Properties) { $List[(QuoteKey $Property.Name)] = Iterate $Property.Value } }
-                    }
-                    if ($List -is [array]) {
-                        #if (!$Casted -and ($Type.Name -eq 'Object[]' -or "$Type".Contains('.'))) { $Cast = 'array' }
-                        if (!$List.Count) { Prefix '@()' }
-                        elseif ($List.Count -eq 1) {
-                            if ($Strong) { Prefix "$List" }
-                            elseif ($ListItem) { "(,$List)" }
-                            else { ",$List" }
-                        }
-                        elseif ($Indent -ge $Expand - 1 -or $Type.GetElementType().IsPrimitive) {
-                            $Content = if ($Expand -ge 0) { $List -join ', ' } else { $List -join ',' }
-                            Prefix -Parenthesis:($ListItem -or $Strong) $Content
-                        }
-                        elseif ($Null -eq $Indent -and !$Strong -and !$Convert) { Prefix ($List -join ",$NewLine") }
-                        else {
-                            $LineFeed = $NewLine + ($Tab * $Indent)
-                            $Content = "$LineFeed$Tab" + ($List -join ",$LineFeed$Tab")
-                            if ($Convert) { $Content = "($Content)" }
-                            if ($ListItem -or $Strong) { Prefix -Parenthesis "$Content$LineFeed" } else { Prefix $Content }
-                        }
-                    } elseif ($List -is [System.Collections.Specialized.OrderedDictionary]) {
-                        if (!$Casted) { if ($Properties) { $Casted = $True; $Cast = 'pscustomobject' } else { $Cast = 'hashtable' } }
-                        if (!$List.Count) { Prefix '@{}' }
-                        elseif ($Expand -lt 0) { Prefix ('@{' + (@(foreach ($Key in $List.get_Keys()) { "$Key$Assign" + $List[$Key] }) -join "$Delimiter") + '}') }
-                        elseif ($List.Count -eq 1 -or $Indent -ge $Expand - 1) {
-                            Prefix ('@{' + (@(foreach ($Key in $List.get_Keys()) { "$Key$Assign" + $List[$Key] }) -join "$Delimiter") + '}')
-                        } else {
-                            $LineFeed = $NewLine + ($Tab * $Indent)
-                            Prefix ("@{$LineFeed$Tab" + (@(foreach ($Key in $List.get_Keys()) {
-                                            if (($List[$Key])[0] -notmatch '[\S]') { "$Key$Assign" + $List[$Key].TrimEnd() } else { "$Key$Assign" + $List[$Key].TrimEnd() }
-                                        }) -join "$Delimiter$LineFeed$Tab") + "$LineFeed}")
-                        }
-                    }
-                    else { Prefix ",$List" }
-                }
-            }
-            if ($Null -eq $Object) { "`$Null" } else {
-                $Type = $Object.GetType()
-                if ($Object -is [Boolean]) { if ($Object) { Stringify '$True' } else { Stringify '$False' } }
-                elseif ('adsi' -as [type] -and $Object -is [adsi]) { Stringify "'$($Object.ADsPath)'" $Type }
-                elseif ('Char', 'mailaddress', 'Regex', 'Semver', 'Type', 'Version', 'Uri' -contains $Type.Name) { Stringify "'$($Object)'" $Type }
-                elseif ($Type.IsPrimitive) { Stringify "$Object" }
-                elseif ($Object -is [string]) { Stringify (Here $Object) }
-                elseif ($Object -is [securestring]) { Stringify "'$($Object | ConvertFrom-SecureString)'" -Convert 'ConvertTo-SecureString' }
-                elseif ($Object -is [pscredential]) { Stringify $Object.Username, $Object.Password -Convert 'New-Object PSCredential' }
-                elseif ($Object -is [datetime]) { Stringify "'$($Object.ToString('o'))'" $Type }
-                elseif ($Object -is [Enum]) { if ("$Type".Contains('.')) { Stringify "$(0 + $Object)" } else { Stringify "'$Object'" $Type } }
-                elseif ($Object -is [scriptblock]) { if ($Object -match "\#.*?$") { Stringify "{$Object$NewLine}" } else { Stringify "{$Object}" } }
-                elseif ($Object -is [RuntimeTypeHandle]) { Stringify "$($Object.Value)" }
-                elseif ($Object -is [xml]) {
-                    $SW = New-Object System.IO.StringWriter; $XW = New-Object System.Xml.XmlTextWriter $SW
-                    $XW.Formatting = if ($Indent -lt $Expand - 1) { 'Indented' } else { 'None' }
-                    $XW.Indentation = $Indentation; $XW.IndentChar = $IndentChar; $Object.WriteContentTo($XW); Stringify (Here $SW) $Type }
-                elseif ($Object -is [System.Data.DataTable]) { Stringify $Object.Rows }
-                elseif ($Type.Name -eq "OrderedDictionary") { Stringify $Object 'ordered' }
-                elseif ($Object -is [ValueType]) { try { Stringify "'$($Object)'" $Type } catch [NullReferenceException]{ Stringify '$Null' $Type } }
-                else { Stringify $Object }
-            }
-        }
-    }
-    process {
-		if (!$niceprint) {
-			(Serialize $Object).TrimEnd() -replace ('(?s)(`|)\r\n\s*',' ')
-		} else {
-			(Serialize $Object).TrimEnd()
+##############################
+# Get-String
+function Get-String( $o, [Parameter(ValueFromPipeLine = $True)][Alias('InputObject')] $Objects, [switch]$Cut, [switch]$Cast, [int]$Depth=10) {
+	if($Objects.Count) {  
+		$script:Cut,$script:Cast,$script:MaxDepth,$script:MaxTotal,$script:depth=$Cut,$Cast,$Depth,500,0
+	} else { $Objects=$o }
+	$script:depth++;
+	foreach ($io in $Objects) {
+		$script:total++;
+		$v=$null
+		# if ($io.GetType -isnot [System.Management.Automation.PsMethod]) { return '$null' } 
+		if (!$io.PsObject.TypeNames) { '$null'; continue } 
+		switch -wildcard ($io.PsObject.TypeNames[0]) {
+			'System.Management.Automation.PSCustomObject' {$t='[PSCustomObject]'}
+			'System.Collections.Generic.List*'  {$t='[System.Collections.Generic.List[object]]'}
+			'System.Collections.ArrayList'  {$t='[System.Collections.ArrayList]'}
+			default {  $t='[{0}]' -f $io.PsObject.TypeNames[0] }
 		}
-    }
+		if ( !$io) {
+			$v='""'
+		} elseif ( $io -is [string]) {
+			$v='"{0}"' -f $($io -replace ('"','`"') )
+		} elseif( $io -is [DateTime]) {
+			$v="'$io'"
+		} elseif( $io -is [TimeSpan]) {
+			$v="'$io'"
+		} elseif( $io -is [scriptblock]) {
+			$v='{{{0}}}'-f $io.ToString()
+		} elseif( $io -is [valuetype]) {
+			$v="'$io'"
+		} 
+		if (!$v) {
+			if ($script:depth -gt $script:MaxDepth) {
+				Write-Warning "Depth <$script:depth> exceeds -depth:$script:MaxDepth, skipping"; 
+				$v='<too deep>'
+			} elseif ( $io.GetEnumerator -is [System.Management.Automation.PsMethod] -and $io.IndexOf -is [System.Management.Automation.PsMethod] ) {
+				$v='@({0})'  -f $(($io.GetEnumerator() |% { '{0}' -f $(Get-String $_)} ) -join(', '))
+			} elseif ( $io.GetEnumerator -is [System.Management.Automation.PsMethod] ) {
+				$v='@{{{0}}}'  -f $(($io.GetEnumerator() |% {  # | Sort @{ E={ $_.Key } }
+					'{0}={1}' -f (Get-String $_.Key), (Get-String $_.Value) }) -join('; '))
+			} else {
+				$props=$io.PSObject.Properties |? {$_.MemberType -eq 'NoteProperty'}
+				if ($props.Count -eq 0) { $props=$io.PSObject.Properties }
+				$v='@{{{0}}}'  -f $(( $props | Sort Name |% {
+				   '{0}={1}' -f (Get-String $_.Name), (Get-String $_.Value) })  -join('; '))
+			}
+			if(!$iter) {  
+				if($script:Cut){
+					$max=$Host.UI.RawUI.WindowSize.Width
+					if($v.Length -gt $max ) { $v=$v.substring(0,$max-2)+".." }
+				}
+			}		
+		}
+		if ($script:Cast) {
+			'{0}{1}' -f $t,$v
+		} else {
+			'{0}{1}' -f $t,$v
+		}
+	}
+	$script:depth--;
+	return
 }
 
 ###############################################
@@ -606,19 +524,16 @@ function Get-XmlEvent {
 }
 #>
 
-
 ###############################################
 ##
 ## BUSINESS FUNCTIONS
 ##
-##############################################
 
 
 ###############################################
 ##
 ## MyWinEvents Implementation       
 ##
-##############################################
 
 ####################################################
 # Get-MyWinEvents
@@ -638,8 +553,8 @@ function Get-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data
 	}
 #>
 
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks  | Out-Host
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), 
+	   $stopwatch.Elapsed.TotalMilliseconds | Out-Host
 	
 	$start_tm = Get-Date
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on ${ylw}{3}${blu}:$cyn{4}$gry at $ylw{5}$gry | $ylw{6}$blu[$ylw{7}$blu]${gry}: $ylw{8}$gry. $rc" -f $MyInvocation.MyCommand.Name, 
@@ -672,8 +587,8 @@ function Get-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Data
 	"$sc$ylw[$cyn{0}$gry() ${ylw}{1}${blu}:$cyn{2}$ylw] $grn{3}${gry} ms, $cyn DONE at $ylw{4} $grn{5}$ylw[$att_clr{6}$ylw]$gry, $grn{7}$ylw[$att_clr{8}$ylw]$gry.$rc" -f  $MyInvocation.MyCommand, 
 	   $myscript, $(&{$MyInvocation.ScriptLineNumber}), $duration, $(Get-Date),
 	   '$Global:EVENTS', $Global:EVENTS_COUNT, '$Global:EVENTS_OUT', $Global:EVENTS_OUT_COUNT |  Out-Host
-	 "$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	 "$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $myscript, $(&{$MyInvocation.ScriptLineNumber}), 
+	   $stopwatch.Elapsed.TotalMilliseconds
 }
 
 #########################################
@@ -684,8 +599,7 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 	$Pids, $Msgs, $RecIds, $ExclLogs, $ExclProviders, $ExclPids, $ExclRecIds, $ExclMsgs,
 	$MaxEvents=50000,
 	[switch]$xml,[switch]$UseCache,[switch]$UpdateCache) {
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $stopwatch.Elapsed.TotalMilliseconds
 	$start_tm = Get-Date
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on ${ylw}{3}${blu}:$cyn{4}$gry at $ylw{5}$gry | $ylw{6}$blu[$ylw{7}$blu]${gry}: $ylw{8}$gry. $rc" -f $MyInvocation.MyCommand, 
 	    $myscript, $(& {$MyInvocation.ScriptLineNumber}),
@@ -711,17 +625,17 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 		}
 	} else  {
 		$Global:EVENTS_PARAM_CMD={
-			$Global:FilterHash=@{} + 
-				$( if ( $Logs       ) { @{ LogName=$Logs                                   } } else { @{} } ) +
-				$( if ( $Providers  ) { @{ ProviderName=$Providers                         } } else { @{} } ) +
-				$( if ( $Paths      ) { @{ Path=$Paths                                     } } else { @{} } ) +
-				$( if ( $IDs        ) { @{ ID=$IDs                                         } } else { @{} } ) +
-				$( if ( $Keywords   ) { @{ Keywords=$Keywords                              } } else { @{} } ) +
-				$( if ( $Levels     ) { @{ Level=$Levels                                   } } else { @{} } ) +
-				$( if ( $UIDs       ) { @{ UserID=$UIDs                                    } } else { @{} } ) +
-				$( if ( $Data       ) { @{ Data=$Data                                      } } else { @{} } ) +
-				$( if ( $Seconds    ) { @{ StartTime=(Get-Date).AddSeconds(-$Seconds)      } } else { @{} } ) +
-				$( if ( $EndSeconds ) { @{ EndTime=(Get-Date).AddSeconds(-$EndSeconds)     } } else { @{} } ) ;
+			$Global:FilterHash=@{};
+			if ( $Logs       ) { $Global:FilterHash+=@{ LogName=$Logs                                   } }
+			if ( $Providers  ) { $Global:FilterHash+=@{ ProviderName=$Providers                         } }
+			if ( $Paths      ) { $Global:FilterHash+=@{ Path=$Paths                                     } }
+			if ( $IDs        ) { $Global:FilterHash+=@{ ID=$IDs                                         } }
+			if ( $Keywords   ) { $Global:FilterHash+=@{ Keywords=$Keywords                              } }
+			if ( $Levels     ) { $Global:FilterHash+=@{ Level=$Levels                                   } }
+			if ( $UIDs       ) { $Global:FilterHash+=@{ UserID=$UIDs                                    } }
+			if ( $Data       ) { $Global:FilterHash+=@{ Data=$Data                                      } }
+			if ( $Seconds    ) { $Global:FilterHash+=@{ StartTime=(Get-Date).AddSeconds(-$Seconds)      } }
+			if ( $EndSeconds ) { $Global:FilterHash+=@{ EndTime=(Get-Date).AddSeconds(-$EndSeconds)     } }
 			"$sc[$grn{0}$gry] $ylw{1}$gry.$rc" -f '$Global:FilterHash',  $('@{ ' + $(($Global:FilterHash.GetEnumerator()   | % { "$($_.Name)='$($_.Value)'" } ) -join('; '))+' }') | Out-Host
 			$Global:EVENTS_PARAM=@{ FilterHashtable=$Global:FilterHash; MaxEvents=$Global:MaxEvents; ErrorAction="SilentlyContinue" }
             "$sc[$grn{0}$gry] $ylw{1}$gry.$rc" -f '$Global:EVENTS_PARAM',$('@{ ' + $(($Global:EVENTS_PARAM.GetEnumerator() | % { "$($_.Name)='$($_.Value)'" } ) -join('; '))+' }') | Out-Host
@@ -730,30 +644,31 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 	}
 	
 	$Global:EVENTS_WHERE_CMD={
-		$CondArr=@()
-		$CondArr+= `
-			$( if( $Pids          ) { @( '$_.ProcessId -match "{0}"'       -f $($Pids          -join('|')) ) } else { @() } ) +
-			$( if( $RecIds        ) { @( '$_.RecordId -match "{0}"'        -f $($RecIds        -join('|')) ) } else { @() } ) +
-			$( if( $Msgs          ) { @( '$_.Message -match "{0}"'         -f $($Msgs          -join('|')) ) } else { @() } ) +
-			$( if( $ExclLogs      ) { @( '$_.LogName -notmatch "{0}"'      -f $($ExclLogs      -join('|')) ) } else { @() } ) +
-			$( if( $ExclPids      ) { @( '$_.ProcessId -notmatch "{0}"'    -f $($ExclPids      -join('|')) ) } else { @() } ) +
-			$( if( $ExclRecIds    ) { @( '$_.RecordId -notmatch "{0}"'     -f $($ExclRecIds    -join('|')) ) } else { @() } ) +
-			$( if( $ExclProviders ) { @( '$_.ProviderName -notmatch "{0}"' -f $($ExclProviders -join('|')) ) } else { @() } ) +
-			$( if( $ExclMsgs      ) { @( '$_.Message -notmatch "{0}"'      -f $($ExclMsgs      -join('|')) ) } else { @() } ) ;
-		if(!$CondArr) { $CondArr=@('1 -eq 1') }
-		$Global:EVENTS_WHERE=$([ScriptBlock]::Create( $($CondArr -join(' -and '))))
-		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry[$grn{3}$gry] $ylw{4}$gry.$rc" -f  @(Get-PSCallStack)[1].InvocationInfo.MyCommand.Name, 
-		   $myscript, $MyInvocation.ScriptLineNumber,"`$Global:EVENTS_WHERE$blu[$ylw$($CondArr.Count)$blu]", $Global:EVENTS_WHERE.ToString() | Out-Host
+		$Global:CondArr=@()
+		if( $Pids          ) { $Global:CondArr+=@( '$_.ProcessId -match "{0}"'       -f $($Pids          -join('|')) ) }
+		if( $RecIds        ) { $Global:CondArr+=@( '$_.RecordId -match "{0}"'        -f $($RecIds        -join('|')) ) }
+		if( $Msgs          ) { $Global:CondArr+=@( '$_.Message -match "{0}"'         -f $($Msgs          -join('|')) ) }
+		if( $ExclLogs      ) { $Global:CondArr+=@( '$_.LogName -notmatch "{0}"'      -f $($ExclLogs      -join('|')) ) }
+		if( $ExclPids      ) { $Global:CondArr+=@( '$_.ProcessId -notmatch "{0}"'    -f $($ExclPids      -join('|')) ) }
+		if( $ExclRecIds    ) { $Global:CondArr+=@( '$_.RecordId -notmatch "{0}"'     -f $($ExclRecIds    -join('|')) ) }
+		if( $ExclProviders ) { $Global:CondArr+=@( '$_.ProviderName -notmatch "{0}"' -f $($ExclProviders -join('|')) ) }
+		if( $ExclMsgs      ) { $Global:CondArr+=@( '$_.Message -notmatch "{0}"'      -f $($ExclMsgs      -join('|')) ) }		
+		if(!$Global:CondArr) { $Global:CondArr=@('1 -eq 1') }
+		$Global:EVENTS_WHERE=[ScriptBlock]::Create( $Global:CondArr -join(' -and ') )
+		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry $grn{3}${gry}: $ylw{4}$gry $grn{5}$blu[$ylw$({6})$blu]${gry}: $ylw{7}$gry.$rc" -f  (@(Get-PSCallStack)[1].InvocationInfo.MyCommand.Name), $myscript, $MyInvocation.ScriptLineNumber,
+		   '$Global:EVENTS_WHERE', $Global:EVENTS_WHERE.ToString(), '$CondArr', $Global:CondArr.Count, ($Global:CondArr -join(' -and '))		| Out-Host
     }
-
 	$Global:EVENTS_LOADER={ $Global:MsgNo=1; $Global:EVENTS=Get-WinEvent @Global:EVENTS_PARAM | Select @{n='MsgNo';e={($Global:MsgNo++)}},*| Where-Object $Global:EVENTS_WHERE; $Global:EVENTS_COUNT=$Global:EVENTS.Count}
 	
-		
 	$PREV_EVENTS_WHERE=$Global:EVENTS_WHERE
 	$PREV_EVENTS_PARAM=$Global:EVENTS_PARAM
 
 	& $Global:EVENTS_PARAM_CMD
 	& $Global:EVENTS_WHERE_CMD
+	
+	# break
+	
+
 
 	if ($UpdateCache) {
 		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr -UpdateCache$gry is set, forced use loader.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}) | Out-Host
@@ -774,10 +689,11 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 		'$UseCache                 : {0}' -f $UseCacheUseCache
 		'$PREV_EVENTS_WHERE        : {0}' -f $PREV_EVENTS_WHERE
 		'$PREV_EVENTS_PARAM        : {0}' -f $PREV_EVENTS_PARAM
-		"$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry calling$att_clr {3}$gry {4}.$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}),
-			'$Global:EVENTS_LOADER',$Global:EVENTS_LOADER | Out-Host
+	    "$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$gry calling$red {3}${gry}: {4}$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}),
+			'$Global:EVENTS_LOADER', $Global:EVENTS_LOADER | Out-Host
 		$do_load=$true
 	}
+
 	
 	######################
 	# $do_load=$false
@@ -799,9 +715,10 @@ function Get-WinEvents($Logs=@('*'), $Providers, $Paths, $IDs, $Levels=@(1,2,3),
 	"$sc$ylw[$cyn{0}$gry() ${ylw}{1}${blu}:$cyn{2}$ylw] $grn{3}${gry} ms,$cyn DONE at $ylw{4} $grn{5}$ylw[$att_clr{6}$ylw]$gry.$rc" -f  $MyInvocation.MyCommand, 
 	   $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $duration, $(Get-Date),
 	   '$Global:EVENTS', $Global:EVENTS_COUNT |  Out-Host
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
+	   $stopwatch.Elapsed.TotalMilliseconds
 }
+
 
 #########################################
 # Print-MyWinEvents
@@ -813,8 +730,8 @@ function Print-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Da
 	 $ExclCols=@("Message","RelatedActivityId","MatchedQueryIds","ContainerLog","ActivityId","Bookmark","MachineName","Properties","Version","Qualifiers","Keywords","ProviderId"),
     [switch]$List, [switch]$Table, [switch]$Raw, [switch]$UseCache,[switch]$UpdateCache
 	) {
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $myscript, $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $myscript, $(& {$MyInvocation.ScriptLineNumber}), 
+	   $stopwatch.Elapsed.TotalMilliseconds
 	$start_tm = Get-Date
 	"$sc$blu[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$blu]$gry called on ${ylw}{3}${blu}:$cyn{4}$gry at $ylw{5}$gry | $ylw{6}$blu[$ylw{7}$blu]${gry}: $ylw{8}$gry. $rc" -f $MyInvocation.MyCommand, 
 	    $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}),
@@ -851,20 +768,18 @@ function Print-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Da
 	$ScriptStr='$Global:EVENTS_OUT=$Global:EVENTS | Select-Object -First {0} | Where-Object $Global:EVENTS_WHERE | Select @Global:EVENTS_SELECT_PARAM' -f $MaxEvents
 	$Global:EVENTS_OUT_LOADER=[scriptblock]::Create($ScriptStr)
 
-	$PRV_PARAM=$Global:EVENTS_SELECT_PARAM
+	# $PRV_PARAM=$Global:EVENTS_SELECT_PARAM
 	$PRV_PARAM_STR=ConvertTo-Json $Global:EVENTS_SELECT_PARAM -compress
+	$PRV_WHERE=ConvertTo-Json $Global:EVENTS_OUT_WHERE -compress
 	
-	$PRV_WHERE=$Global:EVENTS_OUT_WHERE.ToString()
-	# $PRV_WHERE={echo 1}
 	
 	& $Global:EVENTS_WHERE_CMD
 	& $Global:EVENTS_SELECT_PARAM_CMD	
 	if (!$Global:EVENTS_SELECT_PARAM) {$Global:EVENTS_SELECT_PARAM=@{First=1}}
 	
-	$NEW_PARAM=$Global:EVENTS_SELECT_PARAM
+	# $NEW_PARAM=$Global:EVENTS_SELECT_PARAM
 	$NEW_PARAM_STR=ConvertTo-Json $Global:EVENTS_SELECT_PARAM -compress
-	
-	$NEW_WHERE=$Global:EVENTS_OUT_WHERE.ToString()
+	$NEW_WHERE=ConvertTo-Json $Global:EVENTS_OUT_WHERE -compress
 	
 	$do_load=$false
 	if ($UpdateCache) {
@@ -947,25 +862,17 @@ function Print-MyWinEvents( $Logs, $Providers, $Paths, $IDs, $Levels, $UIDs, $Da
 	"$sc$ylw[$cyn{0}$gry() ${ylw}{1}${blu}:$cyn{2}$ylw] $grn{3}${gry} ms,$cyn DONE at $ylw{4} $grn{5}$ylw[$att_clr{6}$ylw]$gry.$rc" -f  $MyInvocation.MyCommand, 
 	   $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), $duration, $(Get-Date),
 	   '$Global:EVENTS_OUT', $Global:EVENTS_OUT_COUNT |  Out-Host
-	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-	   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+	"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$strk ${ylw}Finished$nrml $grn{3}$gry ms$rc" -f $MyInvocation.MyCommand, $(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
+	   $stopwatch.Elapsed.TotalMilliseconds
 }
 
-
-###############################################
 ##
 ## End Of MyWinEvents       
-##
 ##############################################
-
 
 
 ###############################################
-##
 ## Other Functions
-##
-##############################################
-
 
 ###############################################
 # Group-WinEvents
@@ -1083,8 +990,8 @@ function Group-WinEvents () {
 		$do_regroup=$true
 		pargs $('$Global:EVENTS_REGROUP_COMMAND is not set >>> $do_regroup=$true')
     } else {
-		$NEW_COMMAND='$Global:EVENT_GROUPS=$Global:EVENTS| Select-Object {0}|Where-Object {1} |Group-Object {2}| Select {3}' -f $(ConvertTo-Expression $Global:EVENT_GROUPS_SELECT_PARAM),
-		    $(ConvertTo-Expression $Global:EVENTS_WHERE),$(ConvertTo-Expression $Global:EventGroupsCols),$(ConvertTo-Expression $Global:EVENT_GROUPS_COLS)
+		$NEW_COMMAND='$Global:EVENT_GROUPS=$Global:EVENTS| Select-Object {0}|Where-Object {1} |Group-Object {2}| Select {3}' -f $(Get-String $Global:EVENT_GROUPS_SELECT_PARAM),
+		    $(Get-String $Global:EVENTS_WHERE),$(Get-String $Global:EventGroupsCols),$(Get-String $Global:EVENT_GROUPS_COLS)
 		if ($Global:EVENTS_REGROUP_COMMAND -eq $NEW_COMMAND)  { 
 			$do_regroup=$false 
 			pargs $('$Global:EVENTS_REGROUP_COMMAND is the same  >>> $do_regroup=$false')
@@ -1096,9 +1003,9 @@ function Group-WinEvents () {
 	}
 	
 	if ($do_regroup) {
-		$Global:EVENTS_REGROUP_COMMAND='$Global:EVENT_GROUPS=$Global:EVENTS | Where-Object {0} | Select-Object {1} | Group-Object {2} | Select {3}' -f $(ConvertTo-Expression $Global:EVENTS_WHERE),
-		    $(ConvertTo-Expression $Global:EVENT_GROUPS_SELECT_PARAM),
-		    $(ConvertTo-Expression $Global:EventGroupsCols),$(ConvertTo-Expression $Global:EVENT_GROUPS_COLS)
+		$Global:EVENTS_REGROUP_COMMAND='$Global:EVENT_GROUPS=$Global:EVENTS | Where-Object {0} | Select-Object {1} | Group-Object {2} | Select {3}' -f $(Get-String $Global:EVENTS_WHERE),
+		    $(Get-String $Global:EVENT_GROUPS_SELECT_PARAM),
+		    $(Get-String $Global:EventGroupsCols),$(Get-String $Global:EVENT_GROUPS_COLS)
 	    "$sc$ylw[$cyn{0} ${ylw}{1}${blu}:$cyn{2}$ylw]$att_clr regrouping${gry}: {3}$rc" -f $MyInvocation.MyCommand.Name, $myscript, $(& {$MyInvocation.ScriptLineNumber}), $Global:EVENTS_REGROUP_COMMAND | Out-Host
 		& $Global:EVENTS_REGROUP_LOADER
 		# $Global:EVENTS_REGROUP_COMMAND=$ExecutionContext.InvokeCommand.ExpandString($Global:EVENTS_REGROUP_LOADER -replace '\$Global:EVENTS','`$Global:EVENTS')
@@ -1491,23 +1398,20 @@ $Global:Result  | Select-Object -First $Top -Property $Cols -ExcludeProperty $Ex
 
 # $PSBoundParameters.Remove('command')
 # CodeExecutor @PsBoundParameters 
-
-
 pargs
-
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew() # TBD: replace it in MyWinEvents implementation with pargs
 
 <#
 $stopwatch.Restart()
-"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Started $grn{3}$gry ms$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
+   $stopwatch.Elapsed.TotalMilliseconds
 #>
 
 CodeExecutor @args
 
 <#
-"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Elapsed: $grn{3}$gry ms, $grn{4}$gry ticks$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
-   $stopwatch.Elapsed.milliseconds,$stopwatch.Elapsed.ticks
+"$sc$BgBlue[${ylw}{0}$gry() {1}${gry}:$cyn{2}$blu]$ylw Elapsed: $grn{3}$gry ms$rc" -f 'Main',$(Split-Path $(& {$MyInvocation.ScriptName}) -leaf), $(& {$MyInvocation.ScriptLineNumber}), 
+   $stopwatch.Elapsed.TotalMilliseconds
 $stopwatch.Stop()
 #>
 
